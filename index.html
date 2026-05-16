@@ -82,6 +82,45 @@
       mix-blend-mode: screen;
     }
 
+    /* Step tutorial overlay */
+    .tut-step-overlay {
+      position: fixed; inset: 0;
+      background: #0006;
+      display: flex; align-items: flex-end; justify-content: center;
+      z-index: 100;
+      padding-bottom: 24px;
+    }
+    .tut-step-box {
+      background: #1a2040;
+      border: 1px solid #334;
+      border-radius: 20px;
+      padding: 28px 32px 24px;
+      width: min(340px, 90vw);
+      text-align: center;
+      box-shadow: 0 -4px 40px #000a;
+      animation: slide-up 0.25s ease-out;
+    }
+    @keyframes slide-up {
+      from { transform: translateY(40px); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+    .tut-step-dots {
+      display: flex; gap: 8px; justify-content: center; margin-bottom: 20px;
+    }
+    .tut-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #334; transition: background 0.2s;
+    }
+    .tut-dot.active { background: #00ffcc; }
+    .tut-step-icon {
+      font-size: 36px; margin-bottom: 14px;
+      letter-spacing: 4px;
+    }
+    .tut-step-text {
+      font-size: 16px; color: #bbd; line-height: 1.8;
+      white-space: pre-line; margin-bottom: 24px;
+    }
+
     /* Clear overlay */
     .clear-overlay {
       position: fixed; inset: 0;
@@ -279,6 +318,58 @@
     .csi-play { font-size: 12px; color: #5af; cursor: pointer; padding: 2px 10px; background: #0a1a2a; border: 1px solid #1a3a5a; border-radius: 6px; transition: all 0.15s; margin-left: auto; user-select: none; }
     /* Publish panel */
     .publish-panel { width: 100%; background: #0a1a0a; border: 1px solid #1a3a1a; border-radius: 10px; padding: 12px; margin-top: 6px; }
+
+    /* Left sidebar (PC only) */
+    .sidebar {
+      display: none;
+      position: fixed;
+      left: 0; top: 0;
+      width: 70px;
+      height: 100vh;
+      background: #06090f;
+      border-right: 1px solid #131b30;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px 0 12px;
+      gap: 4px;
+      z-index: 50;
+    }
+    .sidebar-logo {
+      font-size: 20px;
+      margin-bottom: 12px;
+      line-height: 1;
+    }
+    .sidebar-divider {
+      width: 36px;
+      height: 1px;
+      background: #1a2040;
+      margin: 6px 0;
+    }
+    .sidebar-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+      border: none;
+      background: transparent;
+      color: #3a4a6a;
+      font-size: 24px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      gap: 3px;
+      font-family: inherit;
+      padding: 0;
+    }
+    .sidebar-btn:hover { background: #0d1528; color: #6a85aa; }
+    .sidebar-btn.active { background: #0c1f3a; color: #7df; }
+    .sidebar-btn > .sb-label { font-size: 8.5px; letter-spacing: 0.3px; line-height: 1; }
+    @media (min-width: 580px) {
+      .sidebar { display: flex; }
+      body { padding-left: 70px; }
+    }
   </style>
 </head>
 <body>
@@ -866,6 +957,15 @@ const STAGES = [
   // Stage 1: 3×3 Simple U-path
   {
     name: 'チュートリアル 1',
+    tutorialId: 'basic',
+    tutorial: {
+      steps: [
+        { icon: '👆', text: 'ピースをタップすると\n右に回転します' },
+        { icon: '✌️', text: '長押し（PCは右クリック）で\n左に回転します' },
+        { icon: '⚡ → 💡', text: '電源から電球まで\nつながるように回そう' },
+        { icon: '🎉', text: '全ての電球が点灯したら\nクリア！' },
+      ],
+    },
     grid: [
       [makeCell('source',2), makeCell('straight',0), makeCell('l',0)],
       [E(),                  E(),                    makeCell('straight',1)],
@@ -1963,9 +2063,19 @@ function GameScreen({ stageIdx, customStage, stageKey, onBack, onNext, onStageSe
     if (!stage.tutorial || !tutorialKey) return false;
     try { return !localStorage.getItem(tutorialKey); } catch { return true; }
   });
+  const [tutStep, setTutStep] = useState(0);
   const dismissTutorial = () => {
     if (tutorialKey) { try { localStorage.setItem(tutorialKey, '1'); } catch {} }
     setShowTutorial(false);
+    setTutStep(0);
+  };
+  const advanceTutorial = () => {
+    const steps = stage.tutorial?.steps;
+    if (steps && tutStep < steps.length - 1) {
+      setTutStep(t => t + 1);
+    } else {
+      dismissTutorial();
+    }
   };
 
   const { powered, byColor, gateOpen, levels, depths } = computePowered(grid);
@@ -2213,15 +2323,32 @@ function GameScreen({ stageIdx, customStage, stageKey, onBack, onNext, onStageSe
       )}
 
       {showTutorial && stage.tutorial && (
-        <div className="clear-overlay" onClick={dismissTutorial}>
-          <div className="clear-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 360 }}>
-            <div className="clear-title" style={{ fontSize: 22 }}>{stage.tutorial.title}</div>
-            <div style={{ fontSize: 14, color: '#bbd', lineHeight: 1.7, margin: '16px 0', whiteSpace: 'pre-line', textAlign: 'left' }}>
-              {stage.tutorial.body}
+        stage.tutorial.steps ? (
+          <div className="tut-step-overlay" onClick={advanceTutorial}>
+            <div className="tut-step-box" onClick={e => e.stopPropagation()}>
+              <div className="tut-step-dots">
+                {stage.tutorial.steps.map((_, i) => (
+                  <span key={i} className={`tut-dot${i === tutStep ? ' active' : ''}`} />
+                ))}
+              </div>
+              <div className="tut-step-icon">{stage.tutorial.steps[tutStep].icon}</div>
+              <div className="tut-step-text">{stage.tutorial.steps[tutStep].text}</div>
+              <button className="btn primary" onClick={advanceTutorial}>
+                {tutStep < stage.tutorial.steps.length - 1 ? '次へ →' : 'はじめる！'}
+              </button>
             </div>
-            <button className="btn primary" onClick={dismissTutorial}>はじめる</button>
           </div>
-        </div>
+        ) : (
+          <div className="clear-overlay" onClick={dismissTutorial}>
+            <div className="clear-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 360 }}>
+              <div className="clear-title" style={{ fontSize: 22 }}>{stage.tutorial.title}</div>
+              <div style={{ fontSize: 14, color: '#bbd', lineHeight: 1.7, margin: '16px 0', whiteSpace: 'pre-line', textAlign: 'left' }}>
+                {stage.tutorial.body}
+              </div>
+              <button className="btn primary" onClick={dismissTutorial}>はじめる</button>
+            </div>
+          </div>
+        )
       )}
     </div>
   );
@@ -2278,7 +2405,7 @@ function StageThumbnail({ grid, size = 72 }) {
 }
 
 // ─── Stage Select ─────────────────────────────────────────────────────────────
-function StageSelect({ onSelect, bestStars, bestMoves, unlockedUpTo, userStages, onCreateStage, onEditStage, onPlayUserStage, onDeleteUserStage, onPlayCommunityStage }) {
+function StageSelect({ tab, onTabChange, onSelect, bestStars, bestMoves, unlockedUpTo, userStages, onCreateStage, onEditStage, onPlayUserStage, onDeleteUserStage, onPlayCommunityStage }) {
   const allPerfect = STAGES.length > 0 && STAGES.every((_, i) => bestStars[`stage_${i}`] === 3);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [communityStages, setCommunityStages] = useState([]);
@@ -2351,126 +2478,129 @@ function StageSelect({ onSelect, bestStars, bestMoves, unlockedUpTo, userStages,
       <h1>Circuit Flow</h1>
       <div className="tagline">繋げて、光らせろ。</div>
 
-      {allPerfect && (
-        <div className="all-clear-banner">
-          <div className="acl-trophy">🏆</div>
-          <div className="acl-title">全ステージ ★★★ 達成！</div>
-          <div className="acl-sub">全 {STAGES.length} ステージをパーフェクトクリア</div>
+      {tab === 'stages' && (
+        <>
+          {allPerfect && (
+            <div className="all-clear-banner">
+              <div className="acl-trophy">🏆</div>
+              <div className="acl-title">全ステージ ★★★ 達成！</div>
+              <div className="acl-sub">全 {STAGES.length} ステージをパーフェクトクリア</div>
+            </div>
+          )}
+          {groups.map(g => {
+            const stagesInGroup = STAGES.slice(g.range[0], g.range[1]);
+            const doneCount = stagesInGroup.filter((_, i) => (bestStars[`stage_${g.range[0] + i}`] || 0) > 0).length;
+            return (
+              <div key={g.label} className="duo-section">
+                <div className="duo-banner" style={{ background: g.color, boxShadow: `0 5px 0 ${g.shadow}` }}>
+                  <div className="duo-banner-icon">{g.icon}</div>
+                  <div>
+                    <div className="duo-banner-title">{g.label}</div>
+                    <div className="duo-banner-sub">{g.desc} · {doneCount}/{stagesInGroup.length} クリア</div>
+                  </div>
+                </div>
+                <div className="duo-nodes">
+                  {stagesInGroup.map((s, i) => {
+                    const idx = g.range[0] + i;
+                    const locked = idx > unlockedUpTo;
+                    const key = `stage_${idx}`;
+                    const stars = bestStars[key] || 0;
+                    const isFeatured = idx === featuredIdx;
+                    const pos = WAVE_POS[i % WAVE_POS.length];
+                    const nodeLabel = locked ? '🔒' : stars === 3 ? '✓' : idx + 1;
+                    return (
+                      <div key={idx} className="duo-node-wrap" style={{ '--pos': pos, '--nd-bg': locked ? '#2a2d3a' : g.color, '--nd-sh': locked ? '#1a1c24' : g.shadow }}>
+                        <div
+                          className={`duo-node${locked ? ' locked' : ''}${isFeatured ? ' featured' : ''}`}
+                          onClick={() => !locked && onSelect(idx)}
+                        >
+                          {nodeLabel}
+                        </div>
+                        <div className="duo-node-stars">
+                          {!locked && [1,2,3].map(si => (
+                            <span key={si} style={{ color: si <= stars ? '#ffd700' : '#2a2a3a' }}>★</span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {tab === 'myStages' && (
+        <div style={{ width: '100%', marginTop: 8 }}>
+          {userStages.length === 0 && (
+            <div style={{ textAlign: 'center', color: '#334', fontSize: 12, padding: '10px 0' }}>
+              まだステージがありません
+            </div>
+          )}
+          {userStages.map(s => {
+            const st = bestStars[s.id] || 0;
+            return (
+              <div key={s.id} className="user-stage-item" onClick={() => onPlayUserStage(s)}>
+                <div className="usi-name">{s.name}</div>
+                <div className="usi-stars">
+                  {[1,2,3].map(si => <span key={si} style={{ color: si <= st ? '#ffd700' : '#223' }}>★</span>)}
+                </div>
+                {bestMoves[s.id] != null && <div className="usi-best">{bestMoves[s.id]}手</div>}
+                <div className="usi-actions">
+                  <span onClick={e => { e.stopPropagation(); onEditStage(s); }}
+                    style={{ color: '#5a8aaa', cursor: 'pointer' }}>編集</span>
+                  {deleteConfirm === s.id
+                    ? <>
+                        <span onClick={e => { e.stopPropagation(); onDeleteUserStage(s.id); setDeleteConfirm(null); }}
+                          style={{ color: '#ff5566', cursor: 'pointer' }}>確認</span>
+                        <span onClick={e => { e.stopPropagation(); setDeleteConfirm(null); }}
+                          style={{ color: '#556', cursor: 'pointer' }}>×</span>
+                      </>
+                    : <span onClick={e => { e.stopPropagation(); setDeleteConfirm(s.id); }}
+                        style={{ color: '#8a4a4a', cursor: 'pointer' }}>削除</span>
+                  }
+                </div>
+              </div>
+            );
+          })}
+          <button className="create-btn" onClick={onCreateStage}>＋ 新しいステージを作る</button>
         </div>
       )}
 
-      {groups.map(g => {
-        const stagesInGroup = STAGES.slice(g.range[0], g.range[1]);
-        const doneCount = stagesInGroup.filter((_, i) => (bestStars[`stage_${g.range[0] + i}`] || 0) > 0).length;
-        return (
-          <div key={g.label} className="duo-section">
-            <div className="duo-banner" style={{ background: g.color, boxShadow: `0 5px 0 ${g.shadow}` }}>
-              <div className="duo-banner-icon">{g.icon}</div>
-              <div>
-                <div className="duo-banner-title">{g.label}</div>
-                <div className="duo-banner-sub">{g.desc} · {doneCount}/{stagesInGroup.length} クリア</div>
+      {tab === 'community' && (
+        <div style={{ width: '100%', marginTop: 8 }}>
+          {commLoading && <div style={{ fontSize: 12, color: '#446', textAlign: 'center', padding: '12px 0' }}>読み込み中...</div>}
+          {commError  && <div style={{ fontSize: 12, color: '#aa4444', textAlign: 'center', padding: '12px 0' }}>{commError}</div>}
+          {communityStages.map(s => (
+            <div key={s.id} className="community-stage-item" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <StageThumbnail grid={s.grid} size={72} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="csi-header">
+                  <div className="csi-name">{s.name}</div>
+                  <div className="csi-author">{s.author}</div>
+                </div>
+                <div className="csi-footer">
+                  <span className="csi-meta">★★★: {s.min_moves}手</span>
+                  <span className="csi-meta">▶ {s.play_count}</span>
+                  <span className={`csi-like ${likedIds.includes(s.id) ? 'liked' : ''}`} onClick={() => handleLike(s)}>
+                    {likedIds.includes(s.id) ? '♥' : '♡'} {s.likes}
+                  </span>
+                  <span className="csi-play" onClick={() => onPlayCommunityStage(s)}>▶ プレイ</span>
+                </div>
               </div>
             </div>
-            <div className="duo-nodes">
-              {stagesInGroup.map((s, i) => {
-                const idx = g.range[0] + i;
-                const locked = idx > unlockedUpTo;
-                const key = `stage_${idx}`;
-                const stars = bestStars[key] || 0;
-                const isFeatured = idx === featuredIdx;
-                const pos = WAVE_POS[i % WAVE_POS.length];
-                const nodeLabel = locked ? '🔒' : stars === 3 ? '✓' : idx + 1;
-                return (
-                  <div key={idx} className="duo-node-wrap" style={{ '--pos': pos, '--nd-bg': locked ? '#2a2d3a' : g.color, '--nd-sh': locked ? '#1a1c24' : g.shadow }}>
-                    <div
-                      className={`duo-node${locked ? ' locked' : ''}${isFeatured ? ' featured' : ''}`}
-                      onClick={() => !locked && onSelect(idx)}
-                    >
-                      {nodeLabel}
-                    </div>
-                    <div className="duo-node-stars">
-                      {!locked && [1,2,3].map(si => (
-                        <span key={si} style={{ color: si <= stars ? '#ffd700' : '#2a2a3a' }}>★</span>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+          ))}
+          {!commLoading && communityStages.length === 0 && !commError && (
+            <div style={{ textAlign: 'center', color: '#334', fontSize: 12, padding: '10px 0' }}>
+              まだ公開ステージがありません
             </div>
-          </div>
-        );
-      })}
-
-      {/* User-created stages */}
-      <div style={{ width: '100%', marginTop: 8 }}>
-        <div className="section-label">マイステージ</div>
-        {userStages.length === 0 && (
-          <div style={{ textAlign: 'center', color: '#334', fontSize: 12, padding: '10px 0' }}>
-            まだステージがありません
-          </div>
-        )}
-        {userStages.map(s => {
-          const st = bestStars[s.id] || 0;
-          return (
-            <div key={s.id} className="user-stage-item" onClick={() => onPlayUserStage(s)}>
-              <div className="usi-name">{s.name}</div>
-              <div className="usi-stars">
-                {[1,2,3].map(si => <span key={si} style={{ color: si <= st ? '#ffd700' : '#223' }}>★</span>)}
-              </div>
-              {bestMoves[s.id] != null && <div className="usi-best">{bestMoves[s.id]}手</div>}
-              <div className="usi-actions">
-                <span onClick={e => { e.stopPropagation(); onEditStage(s); }}
-                  style={{ color: '#5a8aaa', cursor: 'pointer' }}>編集</span>
-                {deleteConfirm === s.id
-                  ? <>
-                      <span onClick={e => { e.stopPropagation(); onDeleteUserStage(s.id); setDeleteConfirm(null); }}
-                        style={{ color: '#ff5566', cursor: 'pointer' }}>確認</span>
-                      <span onClick={e => { e.stopPropagation(); setDeleteConfirm(null); }}
-                        style={{ color: '#556', cursor: 'pointer' }}>×</span>
-                    </>
-                  : <span onClick={e => { e.stopPropagation(); setDeleteConfirm(s.id); }}
-                      style={{ color: '#8a4a4a', cursor: 'pointer' }}>削除</span>
-                }
-              </div>
-            </div>
-          );
-        })}
-        <button className="create-btn" onClick={onCreateStage}>＋ 新しいステージを作る</button>
-      </div>
-
-      {/* Community stages */}
-      <div style={{ width: '100%', marginTop: 8 }}>
-        <div className="section-label">みんなのステージ</div>
-        {commLoading && <div style={{ fontSize: 12, color: '#446', textAlign: 'center', padding: '12px 0' }}>読み込み中...</div>}
-        {commError  && <div style={{ fontSize: 12, color: '#aa4444', textAlign: 'center', padding: '12px 0' }}>{commError}</div>}
-        {communityStages.map(s => (
-          <div key={s.id} className="community-stage-item" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <StageThumbnail grid={s.grid} size={72} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="csi-header">
-                <div className="csi-name">{s.name}</div>
-                <div className="csi-author">{s.author}</div>
-              </div>
-              <div className="csi-footer">
-                <span className="csi-meta">★★★: {s.min_moves}手</span>
-                <span className="csi-meta">▶ {s.play_count}</span>
-                <span className={`csi-like ${likedIds.includes(s.id) ? 'liked' : ''}`} onClick={() => handleLike(s)}>
-                  {likedIds.includes(s.id) ? '♥' : '♡'} {s.likes}
-                </span>
-                <span className="csi-play" onClick={() => onPlayCommunityStage(s)}>▶ プレイ</span>
-              </div>
-            </div>
-          </div>
-        ))}
-        {!commLoading && communityStages.length === 0 && !commError && (
-          <div style={{ textAlign: 'center', color: '#334', fontSize: 12, padding: '10px 0' }}>
-            まだ公開ステージがありません
-          </div>
-        )}
-        {hasMore && !commLoading && (
-          <button className="create-btn" onClick={handleLoadMore}>もっと見る</button>
-        )}
-      </div>
+          )}
+          {hasMore && !commLoading && (
+            <button className="create-btn" onClick={handleLoadMore}>もっと見る</button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2931,6 +3061,7 @@ function StageEditor({ initialStage, onBack, onTestPlay, onSave }) {
 // ─── App ──────────────────────────────────────────────────────────────────────
 function App() {
   const [screen, setScreen]               = useState('select');
+  const [tab, setTab]                     = useState('stages'); // 'stages' | 'myStages' | 'community'
   const [currentStage, setCurrentStage]   = useState(0);
   const [customPlayStage, setCustomPlay]  = useState(null); // { stage, stageKey, backScreen }
   const [editingStage, setEditingStage]   = useState(null); // user stage to edit, or null for new
@@ -3043,6 +3174,8 @@ function App() {
     }
     return (
       <StageSelect
+        tab={tab}
+        onTabChange={setTab}
         onSelect={(idx) => { setCurrentStage(idx); setScreen('game'); }}
         bestStars={bestStars}
         bestMoves={bestMoves}
@@ -3062,8 +3195,49 @@ function App() {
     );
   };
 
+  const goToTab = (t) => { setTab(t); setScreen('select'); };
+
   return (
     <>
+      {screen !== 'game' && (
+        <nav className="sidebar">
+          <div className="sidebar-logo">⚡</div>
+          <div className="sidebar-divider" />
+          <button
+            className={`sidebar-btn${screen === 'select' && tab === 'stages' ? ' active' : ''}`}
+            onClick={() => goToTab('stages')}
+            title="ステージ選択"
+          >
+            <span>🎮</span>
+            <span className="sb-label">ステージ</span>
+          </button>
+          <button
+            className={`sidebar-btn${screen === 'select' && tab === 'myStages' ? ' active' : ''}`}
+            onClick={() => goToTab('myStages')}
+            title="マイステージ"
+          >
+            <span>📋</span>
+            <span className="sb-label">マイ</span>
+          </button>
+          <button
+            className={`sidebar-btn${screen === 'select' && tab === 'community' ? ' active' : ''}`}
+            onClick={() => goToTab('community')}
+            title="みんなのステージ"
+          >
+            <span>🌐</span>
+            <span className="sb-label">みんな</span>
+          </button>
+          <div className="sidebar-divider" />
+          <button
+            className={`sidebar-btn${screen === 'editor' ? ' active' : ''}`}
+            onClick={() => { setEditingStage(null); setEditorKey(k => k + 1); setScreen('editor'); }}
+            title="ステージを作る"
+          >
+            <span>✏️</span>
+            <span className="sb-label">作る</span>
+          </button>
+        </nav>
+      )}
       {sharedStage && (
         <div className="import-overlay">
           <div className="import-card">
