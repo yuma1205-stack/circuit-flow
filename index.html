@@ -1,0 +1,3101 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Circuit Flow</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0e1a;
+      color: #fff;
+      font-family: 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    #root { width: 100%; max-width: 480px; }
+    .screen { display: flex; flex-direction: column; align-items: center; padding: 16px; }
+
+    /* Header */
+    .header { width: 100%; display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .stage-label { font-size: 13px; color: #556; letter-spacing: 2px; text-transform: uppercase; }
+    .stage-title { font-size: 20px; font-weight: 700; color: #e0eaff; }
+    .moves-label { font-size: 13px; color: #556; text-align: right; }
+    .moves-val { font-size: 20px; font-weight: 700; color: #7df; text-align: right; }
+
+    /* Grid */
+    .grid-wrapper { padding: 8px; background: #0d1225; border-radius: 16px; border: 1px solid #1a2040; box-shadow: 0 0 40px #001; }
+    .grid { display: grid; gap: 4px; }
+
+    /* Narrow screens: tighter padding to give the grid more room */
+    @media (max-width: 419px) {
+      .screen { padding: 8px; }
+      .grid-wrapper { padding: 4px; }
+      .header { margin-bottom: 8px; }
+    }
+    .cell {
+      background: #111827;
+      border-radius: 8px;
+      cursor: pointer;
+      position: relative;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.15s;
+    }
+    .cell:active { background: #1a2535; }
+    .cell.powered { background: #0a1a2a; }
+    .cell.source, .cell.bulb { cursor: default; }
+    .cell svg { position: absolute; top: 0; left: 0; overflow: visible; }
+
+    /* Rotating animation */
+    @keyframes spin-cw  { from { transform: rotate(0deg); } to { transform: rotate(90deg); } }
+    @keyframes spin-ccw { from { transform: rotate(0deg); } to { transform: rotate(-90deg); } }
+    .cell.rotating-cw  svg { animation: spin-cw  0.12s ease-out forwards; transform-origin: 36px 36px; }
+    .cell.rotating-ccw svg { animation: spin-ccw 0.12s ease-out forwards; transform-origin: 36px 36px; }
+
+    /* Glow effect for powered wires */
+    .powered-wire { filter: drop-shadow(0 0 4px #00ffcc) drop-shadow(0 0 8px #00ffcc88); }
+    .bulb-glow { filter: drop-shadow(0 0 8px #ffee00) drop-shadow(0 0 16px #ffaa00); }
+
+    /* Flow pulse on clear */
+    @keyframes flow-pulse-anim {
+      0%   { opacity: 0; transform: scale(0.6); }
+      35%  { opacity: 1; transform: scale(1.05); }
+      100% { opacity: 0; transform: scale(1.25); }
+    }
+    .flow-pulse {
+      position: absolute;
+      inset: -2px;
+      border-radius: 10px;
+      background: radial-gradient(circle, #00ffcc 0%, #00ffcc66 35%, transparent 75%);
+      opacity: 0;
+      pointer-events: none;
+      animation: flow-pulse-anim 0.5s ease-out forwards;
+      mix-blend-mode: screen;
+    }
+
+    /* Clear overlay */
+    .clear-overlay {
+      position: fixed; inset: 0;
+      background: #000a;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 100;
+      animation: fadeIn 0.4s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .clear-box {
+      background: #0d1a30;
+      border: 1px solid #1a3060;
+      border-radius: 24px;
+      padding: 40px 48px;
+      text-align: center;
+      box-shadow: 0 0 60px #006;
+    }
+    .clear-title { font-size: 32px; font-weight: 800; color: #7df; margin-bottom: 8px; letter-spacing: 2px; }
+    .clear-sub { font-size: 14px; color: #556; margin-bottom: 20px; }
+    .stars { font-size: 40px; margin-bottom: 24px; }
+    .btn {
+      background: #1a3a6a;
+      border: 1px solid #2a5aaa;
+      color: #adf;
+      font-size: 16px;
+      padding: 12px 32px;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.15s;
+      display: block; width: 100%; margin-bottom: 10px;
+    }
+    .btn:hover { background: #2a4a8a; }
+    .btn.primary { background: #1a5aaa; border-color: #3a7acc; color: #fff; font-weight: 700; }
+    .btn.primary:hover { background: #2a6acc; }
+
+    /* Stage select - Duolingo path style */
+    .stage-select { width: 100%; }
+    .stage-select h1 { font-size: 28px; font-weight: 800; color: #7df; text-align: center; margin-bottom: 4px; }
+    .stage-select .tagline { text-align: center; color: #556; font-size: 13px; margin-bottom: 20px; }
+
+    .duo-section { width: 100%; margin-bottom: 12px; }
+    .duo-banner {
+      width: 100%; border-radius: 16px; padding: 14px 18px;
+      display: flex; align-items: center; gap: 14px;
+      margin-bottom: 10px;
+    }
+    .duo-banner-icon { font-size: 34px; line-height: 1; flex-shrink: 0; }
+    .duo-banner-title { font-size: 15px; font-weight: 800; color: rgba(255,255,255,0.95); }
+    .duo-banner-sub { font-size: 11px; color: rgba(255,255,255,0.6); margin-top: 2px; }
+
+    .duo-nodes { width: 100%; padding: 4px 0; }
+    .duo-node-wrap {
+      margin-bottom: 16px; display: flex; flex-direction: column; align-items: center;
+      margin-left: calc(var(--pos) - 32px); width: 64px;
+    }
+    .duo-node {
+      width: 64px; height: 64px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; font-size: 22px; font-weight: 800; color: #fff;
+      transition: transform 0.08s, box-shadow 0.08s;
+      user-select: none; -webkit-tap-highlight-color: transparent;
+      background: var(--nd-bg, #3a4050);
+      box-shadow: 0 5px 0 var(--nd-sh, #252830);
+      position: relative;
+    }
+    .duo-node:active:not(.locked) { transform: translateY(5px); box-shadow: 0 1px 0 var(--nd-sh, #252830); }
+    .duo-node.locked { cursor: not-allowed; opacity: 0.5; }
+    .duo-node.featured::after {
+      content: ''; position: absolute; inset: -3px; border-radius: 50%;
+      border: 3px solid rgba(255,255,255,0.75);
+      animation: duo-ring 1.6s ease-out infinite;
+      pointer-events: none;
+    }
+    @keyframes duo-ring {
+      0%   { opacity: 0.9; transform: scale(1); }
+      100% { opacity: 0;   transform: scale(1.55); }
+    }
+    .duo-node-stars { display: flex; gap: 1px; margin-top: 5px; }
+    .duo-node-stars span { font-size: 12px; }
+
+    .section-label { font-size: 11px; letter-spacing: 2px; color: #334; text-transform: uppercase; margin: 16px 0 8px; }
+
+    /* Locked cell */
+    .cell.locked { cursor: not-allowed; box-shadow: inset 0 0 0 1px #3a5a8a; }
+    .cell.bridge { cursor: default; }
+
+    /* Hint button */
+    .hint-btn {
+      margin-top: 12px;
+      background: transparent;
+      border: 1px solid #334;
+      color: #556;
+      font-size: 13px;
+      padding: 8px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .hint-btn:hover { border-color: #556; color: #778; }
+    .hint-btn.used { opacity: 0.4; cursor: not-allowed; }
+
+    /* Perfect clear badge */
+    @keyframes perfectPulse {
+      0%, 100% { text-shadow: 0 0 8px #ffd700, 0 0 20px #ffd700, 0 0 40px #ff8c00; transform: scale(1); }
+      50%       { text-shadow: 0 0 16px #ffd700, 0 0 36px #ffd700, 0 0 70px #ff8c00; transform: scale(1.06); }
+    }
+    .perfect-badge {
+      font-size: 24px; font-weight: 900; color: #ffd700;
+      letter-spacing: 4px;
+      animation: perfectPulse 1.2s ease-in-out infinite;
+      margin: 2px 0 12px;
+    }
+
+    /* All-stages ★★★ achievement banner */
+    @keyframes allClearGlow {
+      0%, 100% { box-shadow: 0 0 14px #ffd70066; border-color: #ffd700; }
+      50%       { box-shadow: 0 0 28px #ffd700aa; border-color: #ffee88; }
+    }
+    .all-clear-banner {
+      width: 100%;
+      background: #120f00;
+      border: 1.5px solid #ffd700;
+      border-radius: 14px;
+      padding: 14px 20px;
+      text-align: center;
+      margin-bottom: 20px;
+      animation: allClearGlow 2s ease-in-out infinite;
+    }
+    .all-clear-banner .acl-trophy { font-size: 28px; }
+    .all-clear-banner .acl-title { font-size: 16px; font-weight: 800; color: #ffd700; margin-top: 4px; }
+    .all-clear-banner .acl-sub { font-size: 11px; color: #9a8a55; margin-top: 3px; }
+
+
+
+    /* Stage editor */
+    .palette { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; width: 100%; margin-bottom: 10px; }
+    .palette-item {
+      background: #111827; border: 1.5px solid #1a2535; border-radius: 8px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      cursor: pointer; padding: 4px 2px; aspect-ratio: 1; transition: all 0.15s;
+    }
+    .palette-item:hover { background: #1a2535; }
+    .palette-item.selected { border-color: #7df; background: #0a1a2a; }
+    .sub-palette { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; width: 100%; min-height: 32px; }
+    .color-dot { width: 22px; height: 22px; border-radius: 50%; border: 2.5px solid transparent; cursor: pointer; transition: all 0.15s; }
+    .color-dot.selected { border-color: #fff; box-shadow: 0 0 6px #fff5; }
+    .rot-btn { background: #1a2535; border: 1px solid #2a3545; color: #adf; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 15px; }
+    .rot-btn:hover { background: #2a3545; }
+    .size-control { display: flex; gap: 6px; align-items: center; margin: 8px 0; flex-wrap: wrap; justify-content: center; }
+    .size-btn { background: #1a2535; border: 1px solid #2a3545; color: #adf; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+    .size-btn:hover { background: #2a3545; }
+    .editor-name-input { background: transparent; border: none; border-bottom: 1px solid #2a4a6a; color: #e0eaff; font-size: 18px; font-weight: 700; outline: none; width: 200px; }
+    .editor-error { color: #ff5566; font-size: 12px; margin-bottom: 6px; }
+
+    /* User stage list */
+    .user-stage-item {
+      background: #0f1a2a; border: 1px solid #1a3040; border-radius: 10px;
+      padding: 10px 14px; display: flex; align-items: center; gap: 8px;
+      cursor: pointer; margin-bottom: 6px; transition: background 0.15s;
+    }
+    .user-stage-item:hover { background: #162840; }
+    .usi-name { flex: 1; font-size: 13px; color: #c0d8ff; font-weight: 600; }
+    .usi-stars { font-size: 12px; }
+    .usi-best { font-size: 10px; color: #556; }
+    .usi-actions { display: flex; gap: 10px; font-size: 11px; }
+    .create-btn {
+      width: 100%; background: #0a2040; border: 1px dashed #2a5aaa;
+      border-radius: 10px; padding: 12px; color: #5a8aaa; font-size: 14px;
+      cursor: pointer; text-align: center; transition: all 0.15s; margin-top: 4px;
+    }
+    .create-btn:hover { background: #0f2a50; border-color: #4a7acc; color: #7abaee; }
+    /* Share import overlay */
+    .import-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: #000b; display: flex; align-items: center; justify-content: center; z-index: 200;
+    }
+    .import-card {
+      background: #0f1a2a; border: 1.5px solid #2a5aaa; border-radius: 18px;
+      padding: 28px 24px; max-width: 320px; width: 90%; text-align: center;
+      box-shadow: 0 0 40px #001a3a;
+    }
+    .import-label { font-size: 11px; color: #446; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
+    .import-title { font-size: 22px; font-weight: 800; color: #e0eaff; margin-bottom: 4px; }
+    .import-meta { font-size: 12px; color: #446; margin-bottom: 20px; }
+    /* Community stages */
+    .community-stage-item { background: #0a1525; border: 1px solid #1a2a3a; border-radius: 10px; padding: 10px 14px; margin-bottom: 6px; }
+    .csi-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .csi-name { flex: 1; font-size: 14px; color: #c0d8ff; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .csi-author { font-size: 11px; color: #446; white-space: nowrap; }
+    .csi-footer { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .csi-meta { font-size: 11px; color: #446; }
+    .csi-like { font-size: 12px; color: #887755; cursor: pointer; padding: 2px 8px; background: #12100a; border: 1px solid #2a2a1a; border-radius: 6px; transition: all 0.15s; user-select: none; }
+    .csi-like.liked { color: #ffaa44; border-color: #4a3a1a; }
+    .csi-play { font-size: 12px; color: #5af; cursor: pointer; padding: 2px 10px; background: #0a1a2a; border: 1px solid #1a3a5a; border-radius: 6px; transition: all 0.15s; margin-left: auto; user-select: none; }
+    /* Publish panel */
+    .publish-panel { width: 100%; background: #0a1a0a; border: 1px solid #1a3a1a; border-radius: 10px; padding: 12px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useCallback, useEffect, useRef } = React;
+
+// Responsive cell sizing: tracks viewport width, recomputes on resize
+function useViewportWidth() {
+  const [w, setW] = useState(typeof window !== 'undefined' ? window.innerWidth : 480);
+  useEffect(() => {
+    const onResize = () => setW(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
+  return w;
+}
+
+// cols → cell px, capped at a desktop "ideal" but shrinking to fit narrow screens
+function fitCellSize(vw, cols, ideal, minPx = 32) {
+  // narrow screens use reduced padding (see @media below): screen 8*2 + wrapper 4*2 = 24
+  const pad = vw < 420 ? 24 : 48;
+  const avail = Math.min(vw, 480) - pad;
+  const fit = Math.floor((avail - (cols - 1) * 4) / cols);
+  return Math.max(minPx, Math.min(ideal, fit));
+}
+
+// ─── Directions: 0=N 1=E 2=S 3=W ────────────────────────────────────────────
+const OPPOSITE = [2, 3, 0, 1];
+const DIR_DELTA = [[-1,0],[0,1],[1,0],[0,-1]];
+
+function getConnections(type, rot) {
+  const r = ((rot % 4) + 4) % 4;
+  switch (type) {
+    case 'straight': return r % 2 === 0 ? [0,2] : [1,3];
+    case 'l':        return [[0,1],[1,2],[2,3],[3,0]][r];
+    case 't':        return [[1,2,3],[0,2,3],[0,1,3],[0,1,2]][r];
+    case 'cross':    return [0,1,2,3];
+    case 'bridge':   return [0,1,2,3];
+    case 'source':
+    case 'bulb':     return [[2],[3],[0],[1]][r];
+    case 'oneway':   return [OPPOSITE[r], r];        // input + output endpoints
+    case 'switch':   return [0,1,2,3];                // 4-way (rotation ignored)
+    case 'gate':     return r % 2 === 0 ? [0,2] : [1,3]; // straight-shaped
+    case 'resistor': return r % 2 === 0 ? [0,2] : [1,3]; // straight (-1 power)
+    case 'amp':      return r % 2 === 0 ? [0,2] : [1,3]; // straight (+1 power)
+    case 'resistorL':return [[0,1],[1,2],[2,3],[3,0]][r]; // L-shape (-1)
+    case 'ampL':     return [[0,1],[1,2],[2,3],[3,0]][r]; // L-shape (+1)
+    case 'gear':     return [[0,1],[1,2],[2,3],[3,0]][r]; // L-shape, chains to adjacent gears
+    case 'fuse':     return r % 2 === 0 ? [0,2] : [1,3];  // straight, blows above limit
+    case 'igate':    return r % 2 === 0 ? [0,2] : [1,3];  // straight, open when switch UNlit
+    case 'portal':   return [[2],[3],[0],[1]][r];          // single endpoint, teleports to pair
+    default:         return [];
+  }
+}
+
+// Available colors for sources/bulbs
+const COLOR_HEX = {
+  cyan:   '#00ffcc',
+  red:    '#ff5566',
+  yellow: '#ffdd44',
+  mixed:  '#ffffff',
+};
+const COLOR_OFF = {
+  cyan:   '#2a3a5a',
+  red:    '#5a2a3a',
+  yellow: '#5a5530',
+};
+
+function computePowered(grid) {
+  const rows = grid.length, cols = grid[0].length;
+  const sources = [];
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++)
+      if (grid[r][c].type === 'source')
+        sources.push({ r, c, color: grid[r][c].color || 'cyan', initialPower: grid[r][c].initialPower || 9 });
+
+  const switchLit = {}; // linkId -> bool (current lit state of switch)
+  const byColor = {};  // color -> 2D int level array (0 = unpowered)
+  const MAX_POWER = 9;
+
+  // Portal pairs: linkId -> [{r,c}, {r,c}]
+  const portals = {};
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++)
+      if (grid[r][c].type === 'portal') {
+        const id = grid[r][c].linkId;
+        (portals[id] = portals[id] || []).push({ r, c });
+      }
+
+  const emptyMask = () => Array.from({length: rows}, () => new Array(cols).fill(0));
+
+  function connsOf(cell) {
+    if (cell.type === 'gate' && !switchLit[cell.linkId]) return [];
+    if (cell.type === 'igate' && switchLit[cell.linkId]) return [];
+    return getConnections(cell.type, cell.rotation);
+  }
+
+  function powerDelta(type) {
+    if (type === 'resistor' || type === 'resistorL') return -1;
+    if (type === 'amp' || type === 'ampL') return +1;
+    return 0;
+  }
+
+  function bfsFrom(src, levelMask) {
+    if (src.initialPower < 1) return;
+    if (src.initialPower > levelMask[src.r][src.c]) levelMask[src.r][src.c] = src.initialPower;
+    const stateMax = new Map();
+    stateMax.set(`${src.r},${src.c},-1`, src.initialPower);
+    const pq = [[src.initialPower, src.r, src.c, -1]];
+    while (pq.length) {
+      // Pop max-power entry (Dijkstra)
+      let mi = 0;
+      for (let i = 1; i < pq.length; i++) if (pq[i][0] > pq[mi][0]) mi = i;
+      const [power, r, c, entryDir] = pq.splice(mi, 1)[0];
+      if ((stateMax.get(`${r},${c},${entryDir}`) || 0) > power) continue;
+      const cell = grid[r][c];
+      let outPower = power + powerDelta(cell.type);
+      if (outPower > MAX_POWER) outPower = MAX_POWER;
+      if (outPower < 1) continue;
+      // Portal: power that reached this portal jumps out of its paired portal
+      if (cell.type === 'portal' && entryDir !== -1) {
+        const pairList = portals[cell.linkId] || [];
+        const pair = pairList.find(p => p.r !== r || p.c !== c);
+        if (pair) {
+          const outDir = getConnections('portal', grid[pair.r][pair.c].rotation)[0];
+          const nr = pair.r + DIR_DELTA[outDir][0];
+          const nc = pair.c + DIR_DELTA[outDir][1];
+          if (outPower > levelMask[pair.r][pair.c]) levelMask[pair.r][pair.c] = outPower;
+          if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+            const ncell = grid[nr][nc];
+            const nconns = connsOf(ncell);
+            if (nconns.includes(OPPOSITE[outDir]) &&
+                !(ncell.type === 'oneway' && OPPOSITE[outDir] !== OPPOSITE[ncell.rotation]) &&
+                ncell.type !== 'source' &&
+                !(ncell.type === 'fuse' && outPower > (ncell.limit || 2))) {
+              const nKey = `${nr},${nc},${OPPOSITE[outDir]}`;
+              if (outPower > (stateMax.get(nKey) || 0)) {
+                stateMax.set(nKey, outPower);
+                if (outPower > levelMask[nr][nc]) levelMask[nr][nc] = outPower;
+                pq.push([outPower, nr, nc, OPPOSITE[outDir]]);
+              }
+            }
+          }
+        }
+        continue;
+      }
+      let exitConns;
+      if (cell.type === 'oneway') {
+        exitConns = (entryDir === OPPOSITE[cell.rotation] || entryDir === -1) ? [cell.rotation] : [];
+      } else if (cell.type === 'bridge' && entryDir !== -1) {
+        exitConns = [OPPOSITE[entryDir]];
+      } else {
+        exitConns = connsOf(cell);
+      }
+      for (const dir of exitConns) {
+        const nr = r + DIR_DELTA[dir][0];
+        const nc = c + DIR_DELTA[dir][1];
+        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+        const ncell = grid[nr][nc];
+        const nconns = connsOf(ncell);
+        if (!nconns.includes(OPPOSITE[dir])) continue;
+        if (ncell.type === 'oneway' && OPPOSITE[dir] !== OPPOSITE[ncell.rotation]) continue;
+        if (ncell.type === 'source') continue;
+        if (ncell.type === 'fuse' && outPower > (ncell.limit || 2)) continue; // fuse blows
+        const nKey = `${nr},${nc},${OPPOSITE[dir]}`;
+        const prev = stateMax.get(nKey) || 0;
+        if (outPower > prev) {
+          stateMax.set(nKey, outPower);
+          if (outPower > levelMask[nr][nc]) levelMask[nr][nc] = outPower;
+          pq.push([outPower, nr, nc, OPPOSITE[dir]]);
+        }
+      }
+    }
+  }
+
+  // Iterate: opening a gate may light a switch which opens more gates
+  for (let iter = 0; iter < 20; iter++) {
+    for (const k in byColor) delete byColor[k];
+    for (const src of sources) {
+      if (!byColor[src.color]) byColor[src.color] = emptyMask();
+      bfsFrom(src, byColor[src.color]);
+    }
+    let changed = false;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (grid[r][c].type === 'switch') {
+          const id = grid[r][c].linkId;
+          const lit = Object.values(byColor).some(m => m[r][c]);
+          if (!!switchLit[id] !== !!lit) { switchLit[id] = lit; changed = true; }
+        }
+      }
+    }
+    if (!changed) break;
+  }
+  const gateOpen = {}; // linkId -> bool (for UI: gate passable)
+  for (const id in switchLit) gateOpen[id] = switchLit[id];
+
+  // Combined: powered[r][c] = color string ('cyan'/'red'/'yellow') or 'mixed' or null
+  // levels[r][c] = max power level across all colors (int >= 0)
+  const powered = Array.from({length: rows}, () => new Array(cols).fill(null));
+  const levels = Array.from({length: rows}, () => new Array(cols).fill(0));
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      for (const color in byColor) {
+        if (byColor[color][r][c]) {
+          powered[r][c] = powered[r][c] ? (powered[r][c] === color ? color : 'mixed') : color;
+          if (byColor[color][r][c] > levels[r][c]) levels[r][c] = byColor[color][r][c];
+        }
+      }
+    }
+  }
+
+  // depths[r][c] = hop count from nearest source via powered wires (-1 if unpowered)
+  const depths = Array.from({length: rows}, () => new Array(cols).fill(-1));
+  const dq = [];
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++)
+      if (grid[r][c].type === 'source') { depths[r][c] = 0; dq.push([r, c, -1]); }
+  while (dq.length) {
+    const [r, c, entryDir] = dq.shift();
+    const cell = grid[r][c];
+    let exitConns;
+    if (cell.type === 'oneway') {
+      exitConns = (entryDir === OPPOSITE[cell.rotation] || entryDir === -1) ? [cell.rotation] : [];
+    } else if (cell.type === 'bridge' && entryDir !== -1) {
+      exitConns = [OPPOSITE[entryDir]];
+    } else {
+      exitConns = connsOf(cell);
+    }
+    for (const dir of exitConns) {
+      const nr = r + DIR_DELTA[dir][0];
+      const nc = c + DIR_DELTA[dir][1];
+      if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+      const ncell = grid[nr][nc];
+      const nconns = connsOf(ncell);
+      if (!nconns.includes(OPPOSITE[dir])) continue;
+      if (ncell.type === 'oneway' && OPPOSITE[dir] !== OPPOSITE[ncell.rotation]) continue;
+      if (ncell.type === 'source') continue;
+      if (depths[nr][nc] >= 0) continue;
+      if (!levels[nr][nc]) continue;
+      depths[nr][nc] = depths[r][c] + 1;
+      dq.push([nr, nc, OPPOSITE[dir]]);
+    }
+  }
+
+  return { powered, byColor, gateOpen, levels, depths };
+}
+
+function isSolved(grid, byColor) {
+  for (let r = 0; r < grid.length; r++) {
+    for (let c = 0; c < grid[0].length; c++) {
+      const cell = grid[r][c];
+      if (cell.type !== 'bulb') continue;
+      const want = cell.color || 'cyan';
+      if (!byColor[want] || !byColor[want][r][c]) return false;
+    }
+  }
+  return true;
+}
+
+// ─── SVG Piece Renderer ───────────────────────────────────────────────────────
+const S = 72;
+const H = S / 2;
+const W_THICK = 10;
+const ENDPOINTS = [[H,0],[S,H],[H,S],[0,H]]; // N E S W
+
+function PieceSVG({ type, rotation, isPowered, isBulbLit, isLocked, size = S, powerColor, cellColor, isOpen, linkLabel, level = 0 }) {
+  if (type === 'empty') return null;
+
+  const liveHex = COLOR_HEX[powerColor] || COLOR_HEX.cyan;
+  const offHex  = COLOR_OFF[cellColor || 'cyan'];
+  const color = isPowered ? liveHex : offHex;
+  const glowStyle = isPowered
+    ? { filter: `drop-shadow(0 0 4px ${liveHex}) drop-shadow(0 0 8px ${liveHex}88)` }
+    : undefined;
+
+  const conns = getConnections(type, rotation);
+  const parts = [];
+
+  if (type === 'source') {
+    const ownHex = COLOR_HEX[cellColor || 'cyan'];
+    const c = isPowered ? ownHex : COLOR_OFF[cellColor || 'cyan'];
+    parts.push(
+      <g key="src" style={isPowered ? { filter: `drop-shadow(0 0 4px ${ownHex}) drop-shadow(0 0 8px ${ownHex}88)` } : undefined}>
+        <rect x={H-14} y={H-10} width={28} height={20} rx={4} fill="none" stroke={c} strokeWidth={2.5}/>
+        <rect x={H+14} y={H-5} width={4} height={10} rx={1} fill={c}/>
+        <line x1={H-6} y1={H} x2={H+6} y2={H} stroke={c} strokeWidth={2.5}/>
+        <line x1={H} y1={H-6} x2={H} y2={H+6} stroke={c} strokeWidth={2.5}/>
+        {conns.map(d => {
+          const [ex,ey] = ENDPOINTS[d];
+          return <line key={d} x1={H} y1={H} x2={ex} y2={ey} stroke={c} strokeWidth={W_THICK} strokeLinecap="round"/>;
+        })}
+      </g>
+    );
+  } else if (type === 'bulb') {
+    const ownHex = COLOR_HEX[cellColor || 'cyan'];
+    const litHex = cellColor === 'red' ? '#ff8888' : cellColor === 'yellow' ? '#ffee66' : '#ffee44';
+    const c = isBulbLit ? litHex : isPowered ? ownHex : COLOR_OFF[cellColor || 'cyan'];
+    const style = isBulbLit
+      ? { filter: `drop-shadow(0 0 8px ${litHex}) drop-shadow(0 0 16px ${ownHex})` }
+      : isPowered
+        ? { filter: `drop-shadow(0 0 4px ${ownHex})` }
+        : undefined;
+    parts.push(
+      <g key="bulb" style={style}>
+        <circle cx={H} cy={H} r={12} fill="none" stroke={c} strokeWidth={2.5}/>
+        <path d={`M${H-5},${H+8} L${H+5},${H+8}`} stroke={c} strokeWidth={2} strokeLinecap="round"/>
+        {isBulbLit && <circle cx={H} cy={H} r={18} fill={`${litHex}33`}/>}
+        {conns.map(d => {
+          const [ex,ey] = ENDPOINTS[d];
+          return <line key={d} x1={H} y1={H} x2={ex} y2={ey} stroke={c} strokeWidth={W_THICK} strokeLinecap="round"/>;
+        })}
+      </g>
+    );
+  } else if (type === 'bridge') {
+    const c = isPowered ? liveHex : '#2a3a5a';
+    const bg = isPowered ? '#0a1a2a' : '#111827';
+    parts.push(
+      <g key="bridge" style={glowStyle}>
+        <line x1={0} y1={H} x2={S} y2={H} stroke={c} strokeWidth={W_THICK} strokeLinecap="round"/>
+        <rect x={H-7} y={H-7} width={14} height={14} fill={bg}/>
+        <line x1={H} y1={0} x2={H} y2={S} stroke={c} strokeWidth={W_THICK} strokeLinecap="round"/>
+      </g>
+    );
+  } else if (type === 'oneway') {
+    // Wire from input to output, with arrow indicating output direction
+    const inDir = OPPOSITE[((rotation%4)+4)%4];
+    const outDir = ((rotation%4)+4)%4;
+    const [ix, iy] = ENDPOINTS[inDir];
+    const [ox, oy] = ENDPOINTS[outDir];
+    // Arrow tip at endpoint of output, base 16px back toward center
+    const tipX = (H + ox) / 2 + (ox - H) * 0.25;
+    const tipY = (H + oy) / 2 + (oy - H) * 0.25;
+    // Compute perpendicular for the base
+    const dx = ox - H, dy = oy - H;
+    const len = Math.sqrt(dx*dx + dy*dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    const px = -uy, py = ux; // perpendicular
+    const baseCx = tipX - ux * 14;
+    const baseCy = tipY - uy * 14;
+    const b1x = baseCx + px * 9, b1y = baseCy + py * 9;
+    const b2x = baseCx - px * 9, b2y = baseCy - py * 9;
+    parts.push(
+      <g key="oneway" style={glowStyle}>
+        <line x1={ix} y1={iy} x2={ox} y2={oy} stroke={color} strokeWidth={W_THICK} strokeLinecap="round"/>
+        <polygon points={`${tipX},${tipY} ${b1x},${b1y} ${b2x},${b2y}`} fill={color} stroke={color} strokeWidth={1.5} strokeLinejoin="round"/>
+      </g>
+    );
+  } else if (type === 'switch') {
+    // 4-way wires + button
+    const c = color;
+    parts.push(
+      <g key="switch" style={glowStyle}>
+        {[0,1,2,3].map(d => {
+          const [ex,ey] = ENDPOINTS[d];
+          return <line key={d} x1={H} y1={H} x2={ex} y2={ey} stroke={c} strokeWidth={W_THICK} strokeLinecap="round"/>;
+        })}
+        <circle cx={H} cy={H} r={13} fill={isPowered ? c : '#0d1225'} stroke={c} strokeWidth={2.5}/>
+        <text x={H} y={H+4} textAnchor="middle" fontSize="12" fontWeight="700" fill={isPowered ? '#0d1225' : c}>{linkLabel || 'S'}</text>
+      </g>
+    );
+  } else if (type === 'gate') {
+    const c = color;
+    const [a, b] = conns;
+    const [ax, ay] = ENDPOINTS[a];
+    const [bx, by] = ENDPOINTS[b];
+    if (isOpen) {
+      parts.push(
+        <g key="gate" style={glowStyle}>
+          <line x1={ax} y1={ay} x2={bx} y2={by} stroke={c} strokeWidth={W_THICK} strokeLinecap="round"/>
+          <text x={H} y={H-12} textAnchor="middle" fontSize="9" fill={c}>{linkLabel || 'G'}</text>
+        </g>
+      );
+    } else {
+      // Closed: dashed wire + barrier
+      const isHoriz = (rotation % 2) === 1;
+      parts.push(
+        <g key="gate-closed">
+          <line x1={ax} y1={ay} x2={bx} y2={by} stroke="#3a4a6a" strokeWidth={W_THICK} strokeLinecap="round" strokeDasharray="4 4" opacity="0.5"/>
+          <rect
+            x={isHoriz ? H-3 : H-14} y={isHoriz ? H-14 : H-3}
+            width={isHoriz ? 6 : 28} height={isHoriz ? 28 : 6}
+            fill="#1a2535" stroke="#5a6a8a" strokeWidth={1.5}/>
+          <text x={H} y={H+4} textAnchor="middle" fontSize="9" fill="#7a8aaa">{linkLabel || 'G'}</text>
+        </g>
+      );
+    }
+  } else if (type === 'igate') {
+    // Inverse gate: passable when switch UNlit (isOpen reflects passability)
+    const c = color;
+    const [a, b] = conns;
+    const [ax, ay] = ENDPOINTS[a];
+    const [bx, by] = ENDPOINTS[b];
+    if (isOpen) {
+      parts.push(
+        <g key="igate" style={glowStyle}>
+          <line x1={ax} y1={ay} x2={bx} y2={by} stroke={c} strokeWidth={W_THICK} strokeLinecap="round"/>
+          <text x={H} y={H-12} textAnchor="middle" fontSize="9" fill={c}>!{linkLabel || 'G'}</text>
+        </g>
+      );
+    } else {
+      const isHoriz = (rotation % 2) === 1;
+      parts.push(
+        <g key="igate-closed">
+          <line x1={ax} y1={ay} x2={bx} y2={by} stroke="#6a3a4a" strokeWidth={W_THICK} strokeLinecap="round" strokeDasharray="4 4" opacity="0.5"/>
+          <rect
+            x={isHoriz ? H-3 : H-14} y={isHoriz ? H-14 : H-3}
+            width={isHoriz ? 6 : 28} height={isHoriz ? 28 : 6}
+            fill="#2a1a25" stroke="#8a5a6a" strokeWidth={1.5}/>
+          <text x={H} y={H+4} textAnchor="middle" fontSize="9" fill="#aa7a8a">!{linkLabel || 'G'}</text>
+        </g>
+      );
+    }
+  } else if (type === 'fuse') {
+    // Straight wire + filament capsule + limit number
+    const horiz = (rotation % 2) === 1;
+    const c = color;
+    const fuseParts = [];
+    if (horiz) {
+      fuseParts.push(<line key="fw1" x1={0} y1={H} x2={H-15} y2={H} stroke={c} strokeWidth={W_THICK} strokeLinecap="round"/>);
+      fuseParts.push(<line key="fw2" x1={H+15} y1={H} x2={S} y2={H} stroke={c} strokeWidth={W_THICK} strokeLinecap="round"/>);
+      fuseParts.push(<rect key="fcap" x={H-15} y={H-8} width={30} height={16} rx={8} fill="#0d1225" stroke={c} strokeWidth={2}/>);
+      fuseParts.push(<line key="ffil" x1={H-12} y1={H} x2={H+12} y2={H} stroke={c} strokeWidth={1.5}/>);
+    } else {
+      fuseParts.push(<line key="fw1" x1={H} y1={0} x2={H} y2={H-15} stroke={c} strokeWidth={W_THICK} strokeLinecap="round"/>);
+      fuseParts.push(<line key="fw2" x1={H} y1={H+15} x2={H} y2={S} stroke={c} strokeWidth={W_THICK} strokeLinecap="round"/>);
+      fuseParts.push(<rect key="fcap" x={H-8} y={H-15} width={16} height={30} rx={8} fill="#0d1225" stroke={c} strokeWidth={2}/>);
+      fuseParts.push(<line key="ffil" x1={H} y1={H-12} x2={H} y2={H+12} stroke={c} strokeWidth={1.5}/>);
+    }
+    parts.push(
+      <g key="fuse" style={glowStyle}>
+        {fuseParts}
+        <text x={H} y={H-16} textAnchor="middle" fontSize="10" fontWeight="700" fill={c}>≤{linkLabel}</text>
+      </g>
+    );
+  } else if (type === 'portal') {
+    // Single endpoint + portal ring
+    const c = color;
+    const d = conns[0];
+    const [ex, ey] = ENDPOINTS[d];
+    parts.push(
+      <g key="portal" style={glowStyle}>
+        <line x1={H} y1={H} x2={ex} y2={ey} stroke={c} strokeWidth={W_THICK} strokeLinecap="round"/>
+        <circle cx={H} cy={H} r={14} fill="none" stroke={c} strokeWidth={2.5}/>
+        <circle cx={H} cy={H} r={9} fill="none" stroke={c} strokeWidth={1.5} opacity={0.6}/>
+        <text x={H} y={H+4} textAnchor="middle" fontSize="11" fontWeight="700" fill={c}>{linkLabel}</text>
+      </g>
+    );
+  } else if (type === 'resistor' || type === 'amp' || type === 'resistorL' || type === 'ampL') {
+    // Circuit-diagram style: wire + center symbol
+    const isL = (type === 'resistorL' || type === 'ampL');
+    const isAmp = (type === 'amp' || type === 'ampL');
+    // Symbol center position
+    let sx = H, sy = H;
+    const wireParts = [];
+    if (isL) {
+      for (const d of conns) {
+        const [ex,ey] = ENDPOINTS[d];
+        wireParts.push(
+          <line key={`lw${d}`} x1={H} y1={H} x2={ex} y2={ey}
+            stroke={color} strokeWidth={W_THICK} strokeLinecap="round"/>
+        );
+      }
+      // Symbol at center
+      sx = H; sy = H;
+    } else {
+      const horiz = (rotation % 2) === 1;
+      if (horiz) {
+        wireParts.push(<line key="w1" x1={0} y1={H} x2={H-16} y2={H} stroke={color} strokeWidth={W_THICK} strokeLinecap="round"/>);
+        wireParts.push(<line key="w2" x1={H+16} y1={H} x2={S} y2={H} stroke={color} strokeWidth={W_THICK} strokeLinecap="round"/>);
+      } else {
+        wireParts.push(<line key="w1" x1={H} y1={0} x2={H} y2={H-16} stroke={color} strokeWidth={W_THICK} strokeLinecap="round"/>);
+        wireParts.push(<line key="w2" x1={H} y1={H+16} x2={H} y2={S} stroke={color} strokeWidth={W_THICK} strokeLinecap="round"/>);
+      }
+    }
+    // Symbol
+    let symbol;
+    if (isAmp) {
+      // Op-amp style triangle pointing along longer wire (default: right)
+      symbol = (
+        <g key="amp-sym">
+          <circle cx={sx} cy={sy} r={13} fill="#0d1225" stroke={color} strokeWidth={2}/>
+          <polygon points={`${sx-6},${sy-7} ${sx+8},${sy} ${sx-6},${sy+7}`} fill="none" stroke={color} strokeWidth={2.2} strokeLinejoin="round"/>
+        </g>
+      );
+    } else {
+      symbol = (
+        <g key="res-sym">
+          <rect x={sx-13} y={sy-7} width={26} height={14} rx={3} fill="#0d1225" stroke={color} strokeWidth={2}/>
+          <path d={`M ${sx-10} ${sy} L ${sx-7} ${sy-4} L ${sx-3} ${sy+4} L ${sx+1} ${sy-4} L ${sx+5} ${sy+4} L ${sx+8} ${sy-4} L ${sx+10} ${sy}`}
+            stroke={color} fill="none" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/>
+        </g>
+      );
+    }
+    parts.push(<g key="rwire" style={glowStyle}>{wireParts}{symbol}</g>);
+  } else if (type === 'gear') {
+    // L-shaped wire + gear teeth ring
+    const wireParts = [];
+    for (const d of conns) {
+      const [ex, ey] = ENDPOINTS[d];
+      wireParts.push(<line key={`gw${d}`} x1={H} y1={H} x2={ex} y2={ey} stroke={color} strokeWidth={W_THICK} strokeLinecap="round"/>);
+    }
+    // Teeth: 8 small rectangles around center
+    const teeth = [];
+    const RING_R = 11;
+    const TOOTH_OUT = 16;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * 2 * Math.PI - Math.PI / 2;
+      const x1 = H + Math.cos(a) * RING_R;
+      const y1 = H + Math.sin(a) * RING_R;
+      const x2 = H + Math.cos(a) * TOOTH_OUT;
+      const y2 = H + Math.sin(a) * TOOTH_OUT;
+      teeth.push(<line key={`tooth${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={3.5} strokeLinecap="round"/>);
+    }
+    parts.push(
+      <g key="gear" style={glowStyle}>
+        {wireParts}
+        <circle cx={H} cy={H} r={RING_R} fill="#0d1225" stroke={color} strokeWidth={2.5}/>
+        {teeth}
+        <circle cx={H} cy={H} r={3} fill={color}/>
+      </g>
+    );
+  } else {
+    // Generic wire pieces (straight, l, t, cross)
+    const paths = [];
+    for (const d of conns) {
+      const [ex,ey] = ENDPOINTS[d];
+      paths.push(
+        <line key={d} x1={H} y1={H} x2={ex} y2={ey}
+          stroke={color} strokeWidth={W_THICK} strokeLinecap="round"/>
+      );
+    }
+    if (conns.length > 1) {
+      paths.push(<circle key="dot" cx={H} cy={H} r={W_THICK/2} fill={color}/>);
+    }
+    parts.push(<g key="wire" style={glowStyle}>{paths}</g>);
+  }
+
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${S} ${S}`}>
+      {parts}
+      {isLocked && (
+        <g>
+          <rect x={S-18} y={3} width={14} height={10} rx={2} fill="#0d1225" stroke="#4a6a8a" strokeWidth={1.2}/>
+          <path d={`M${S-15},3 a4,3.5 0 0,1 8,0`} fill="none" stroke="#4a6a8a" strokeWidth={1.5}/>
+          <circle cx={S-11} cy={8} r={1.5} fill="#4a6a8a"/>
+        </g>
+      )}
+      {level > 0 && (type === 'source' || type === 'bulb' || type === 'resistor' || type === 'amp' || type === 'resistorL' || type === 'ampL') && (
+        <g>
+          <rect x={3} y={S-15} width={14} height={12} rx={3} fill="#0d1225" stroke={COLOR_HEX[powerColor] || COLOR_HEX.cyan} strokeWidth={1.2}/>
+          <text x={10} y={S-6} textAnchor="middle" fontSize="10" fontWeight="700" fill={COLOR_HEX[powerColor] || COLOR_HEX.cyan}>{level}</text>
+        </g>
+      )}
+    </svg>
+  );
+}
+
+// ─── Stage Data ───────────────────────────────────────────────────────────────
+// Each cell: { type, rotation }
+// Rotation is the INITIAL (scrambled) rotation
+// solutionRotations: what each cell's rotation should be when solved
+
+function makeCell(type, rotation, locked = false, opts = {}) {
+  return { type, rotation, locked, ...opts };
+}
+const E = () => makeCell('empty', 0);
+// Helpers for new piece types
+const ow   = (rot) => makeCell('oneway', rot);
+const sw   = (id)  => makeCell('switch', 0, false, { linkId: id });
+const gt   = (id, rot=0) => makeCell('gate', rot, false, { linkId: id });
+const igt  = (id, rot=0) => makeCell('igate', rot, false, { linkId: id });
+const srcC = (rot, color) => makeCell('source', rot, false, { color });
+const bulbC= (rot, color) => makeCell('bulb', rot, false, { color });
+const fuse = (rot, limit) => makeCell('fuse', rot, false, { limit });
+const portal = (rot, id) => makeCell('portal', rot, false, { linkId: id });
+const srcP = (rot, power) => makeCell('source', rot, false, { initialPower: power });
+
+const STAGES = [
+  // Stage 1: 3×3 Simple U-path
+  {
+    name: 'チュートリアル 1',
+    grid: [
+      [makeCell('source',2), makeCell('straight',0), makeCell('l',0)],
+      [E(),                  E(),                    makeCell('straight',1)],
+      [makeCell('bulb',0),   makeCell('straight',0), makeCell('l',1)],
+    ],
+    solution: [
+      [3, 1, 2],
+      [0, 0, 0],
+      [3, 1, 3],
+    ],
+    minMoves: 9,
+  },
+  // Stage 2: 3×3 Z-path
+  {
+    name: 'チュートリアル 2',
+    grid: [
+      [makeCell('source',0), makeCell('straight',0), makeCell('l',0)],
+      [E(),                  E(),                    makeCell('straight',0)],
+      [makeCell('bulb',0),   makeCell('straight',0), makeCell('l',0)],
+    ],
+    solution: [
+      [3, 1, 2],
+      [0, 0, 0],
+      [3, 1, 3],
+    ],
+    minMoves: 7,
+  },
+  // Stage 3: 3×3 Cross → 3 bulbs
+  {
+    name: 'チュートリアル 3',
+    grid: [
+      [E(),               makeCell('source',0), E()],
+      [makeCell('bulb',0), makeCell('cross',0), makeCell('bulb',0)],
+      [E(),               makeCell('bulb',0),  E()],
+    ],
+    solution: [
+      [0, 0, 0],
+      [3, 0, 1],
+      [0, 2, 0],
+    ],
+    minMoves: 4,
+  },
+  // Stage 4: 4×4 U-snake
+  {
+    name: 'ステージ 4',
+    grid: [
+      [makeCell('source',0), makeCell('straight',0), makeCell('straight',0), makeCell('l',0)],
+      [E(),                  E(),                    E(),                    makeCell('straight',0)],
+      [makeCell('l',0),      makeCell('straight',0), makeCell('straight',0), makeCell('l',0)],
+      [makeCell('l',0),      makeCell('straight',0), makeCell('straight',0), makeCell('bulb',0)],
+    ],
+    solution: [
+      [3, 1, 1, 2],
+      [0, 0, 0, 0],
+      [1, 1, 1, 3],
+      [0, 1, 1, 1],
+    ],
+    minMoves: 12,
+  },
+  // Stage 5: 4×4 T-junction → 2 bulbs
+  {
+    name: 'ステージ 5',
+    grid: [
+      [makeCell('source',0), makeCell('straight',0), makeCell('l',0),       E()],
+      [E(),                  E(),                    makeCell('straight',0), E()],
+      [E(),                  makeCell('bulb',0),     makeCell('t',0),        E()],
+      [E(),                  E(),                    makeCell('l',0),        makeCell('bulb',0)],
+    ],
+    solution: [
+      [3, 1, 2, 0],
+      [0, 0, 0, 0],
+      [0, 3, 1, 0],
+      [0, 0, 0, 1],
+    ],
+    minMoves: 7,
+  },
+  // Stage 6: 4×4 Cross → 2 bulbs
+  {
+    name: 'ステージ 6',
+    grid: [
+      [makeCell('source',0), makeCell('straight',0), makeCell('l',0),    E()],
+      [makeCell('bulb',0),   makeCell('straight',0), makeCell('cross',0), E()],
+      [E(),                  E(),                    makeCell('straight',0), E()],
+      [E(),                  E(),                    makeCell('bulb',0),  E()],
+    ],
+    solution: [
+      [3, 1, 2, 0],
+      [3, 1, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 2, 0],
+    ],
+    minMoves: 8,
+  },
+  // Stage 7: 5×5 Challenge
+  {
+    name: 'ステージ 7',
+    grid: [
+      [makeCell('source',0), makeCell('straight',0), makeCell('l',0),       makeCell('straight',0), makeCell('l',0)],
+      [makeCell('straight',0), makeCell('l',0),      makeCell('straight',0), makeCell('l',0),       makeCell('straight',0)],
+      [makeCell('l',0),      makeCell('straight',0), makeCell('cross',0),   makeCell('straight',0), makeCell('l',0)],
+      [makeCell('straight',0), makeCell('l',0),      makeCell('straight',0), makeCell('l',0),       makeCell('straight',0)],
+      [makeCell('l',0),      makeCell('straight',0), makeCell('l',0),       makeCell('straight',0), makeCell('bulb',0)],
+    ],
+    solution: [
+      [3, 1, 2, 1, 2],
+      [0, 1, 0, 3, 0],
+      [3, 1, 0, 1, 2],
+      [0, 3, 0, 1, 0],
+      [1, 1, 3, 1, 2],
+    ],
+    minMoves: 3,
+  },
+  // Stage 8: 5×5 Winding path
+  {
+    name: 'ステージ 8',
+    grid: [
+      [makeCell('source',0), makeCell('straight',0), makeCell('l',0),       E(),                E()],
+      [makeCell('l',0),      makeCell('straight',0), makeCell('l',0),       E(),                E()],
+      [makeCell('l',0),      makeCell('straight',0), makeCell('straight',0), makeCell('straight',0), makeCell('l',0)],
+      [makeCell('l',0),      makeCell('straight',0), makeCell('straight',0), makeCell('straight',0), makeCell('l',0)],
+      [makeCell('l',0),      makeCell('straight',0), makeCell('straight',0), makeCell('straight',0), makeCell('bulb',0)],
+    ],
+    solution: [
+      [3, 1, 2, 0, 0],
+      [1, 1, 3, 0, 0],
+      [0, 1, 1, 1, 2],
+      [1, 1, 1, 1, 3],
+      [0, 1, 1, 1, 1],
+    ],
+    minMoves: 20,
+  },
+  // Stage 9: 4×4 Bridge — two paths cross at a bridge piece
+  {
+    name: 'ブリッジ入門',
+    grid: [
+      [makeCell('source',3), E(),                  E(),                    E()],
+      [makeCell('t',2),      makeCell('l',1),       E(),                    E()],
+      [makeCell('l',3),      makeCell('bridge',0),  makeCell('straight',0), makeCell('bulb',0)],
+      [E(),                  makeCell('bulb',1),    E(),                    E()],
+    ],
+    solution: [
+      [0, 0, 0, 0],
+      [3, 2, 0, 0],
+      [0, 0, 1, 1],
+      [0, 2, 0, 0],
+    ],
+    minMoves: 7,
+  },
+  // Stage 10: 3×4 Locked — fixed pieces define the route
+  {
+    name: 'ロック回路',
+    grid: [
+      [makeCell('source',0,true), makeCell('bulb',2),            makeCell('l',1),             E()],
+      [makeCell('straight',0,true), E(),                         makeCell('straight',0,true), E()],
+      [makeCell('l',3),             makeCell('straight',1,true), makeCell('l',2),             E()],
+    ],
+    solution: [
+      [0, 3, 2, 0],
+      [0, 0, 0, 0],
+      [0, 1, 3, 0],
+    ],
+    minMoves: 4,
+  },
+  // ─── Stage 11-25 ──────────────────────────────────────────────────────────
+  {
+    name: 'ステージ 11',
+    grid: [
+      [makeCell('source',2), makeCell('straight',0), makeCell('l',1), E()],
+      [E(), makeCell('l',3), makeCell('l',2), E()],
+      [E(), makeCell('l',1), makeCell('l',3), E()],
+      [E(), E(), makeCell('l',1), makeCell('bulb',3)],
+    ],
+    solution: [[3,1,2,0],[0,1,3,0],[0,0,2,0],[0,0,0,1]],
+    minMoves: 11,
+  },
+  {
+    name: 'ステージ 12',
+    grid: [
+      [makeCell('source',2), makeCell('straight',0), makeCell('straight',0), makeCell('l',3)],
+      [E(), E(), E(), makeCell('straight',1)],
+      [makeCell('l',3), makeCell('straight',0), makeCell('straight',0), makeCell('l',1)],
+      [makeCell('bulb',1), E(), E(), E()],
+    ],
+    solution: [[3,1,1,2],[0,0,0,0],[1,1,1,3],[2,0,0,0]],
+    minMoves: 12,
+  },
+  {
+    name: 'ステージ 13',
+    grid: [
+      [E(), makeCell('source',2), E(), E()],
+      [E(), makeCell('l',2), makeCell('t',2), makeCell('l',0)],
+      [E(), E(), makeCell('straight',1), E()],
+      [E(), E(), makeCell('bulb',0), E()],
+    ],
+    solution: [[0,0,0,0],[0,0,0,2],[0,0,0,0],[0,0,2,0]],
+    minMoves: 8,
+  },
+  {
+    name: 'ステージ 14',
+    grid: [
+      [E(), E(), makeCell('source',2), E()],
+      [makeCell('l',3), makeCell('cross',0), makeCell('l',1), E()],
+      [makeCell('bulb',0), E(), E(), E()],
+      [E(), E(), E(), E()],
+    ],
+    solution: [[0,0,0,0],[1,0,3,0],[2,0,0,0],[0,0,0,0]],
+    minMoves: 8,
+  },
+  {
+    name: 'ステージ 15',
+    grid: [
+      [E(), makeCell('source',2), E(), E()],
+      [makeCell('l',3), makeCell('t',0), makeCell('l',0), E()],
+      [makeCell('bulb',0), E(), makeCell('bulb',0), E()],
+      [E(), E(), E(), E()],
+    ],
+    solution: [[0,0,0,0],[1,2,2,0],[2,0,2,0],[0,0,0,0]],
+    minMoves: 12,
+  },
+  {
+    name: 'ステージ 16',
+    grid: [
+      [makeCell('source',0), makeCell('l',0), E(), E(), E()],
+      [E(), makeCell('straight',1), E(), E(), E()],
+      [E(), makeCell('l',2), makeCell('straight',0), makeCell('l',0), E()],
+      [makeCell('bulb',1), E(), E(), makeCell('straight',1), E()],
+      [makeCell('l',2), makeCell('straight',0), makeCell('straight',0), makeCell('l',1), E()],
+    ],
+    solution: [[3,2,0,0,0],[0,0,0,0,0],[0,0,1,2,0],[0,0,0,0,0],[0,1,1,3,0]],
+    minMoves: 17,
+  },
+  {
+    name: 'ステージ 17',
+    grid: [
+      [E(), E(), makeCell('l',2), E(), E()],
+      [makeCell('source',0), makeCell('straight',0), makeCell('bridge',0), makeCell('straight',0), makeCell('bulb',3)],
+      [E(), E(), makeCell('l',0), E(), E()],
+    ],
+    solution: [[0,0,0,0,0],[3,1,0,1,1],[0,0,0,0,0]],
+    minMoves: 5,
+  },
+  {
+    name: 'ステージ 18',
+    grid: [
+      [E(), makeCell('source',2), E(), E()],
+      [makeCell('l',3), makeCell('t',0), makeCell('l',0), E()],
+      [makeCell('straight',1), E(), makeCell('straight',1), E()],
+      [makeCell('bulb',0), E(), makeCell('bulb',0), E()],
+    ],
+    solution: [[0,0,0,0],[1,2,2,0],[0,0,0,0],[2,0,2,0]],
+    minMoves: 14,
+  },
+  {
+    name: 'ステージ 19',
+    grid: [
+      [makeCell('source',0), makeCell('straight',0), makeCell('l',3), E(), E()],
+      [E(), E(), makeCell('straight',1), E(), E()],
+      [makeCell('l',2), makeCell('straight',0), makeCell('cross',0), makeCell('straight',0), makeCell('l',2)],
+      [E(), E(), makeCell('straight',1), E(), E()],
+      [E(), E(), makeCell('l',1), makeCell('straight',0), makeCell('bulb',3)],
+    ],
+    solution: [[3,1,2,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,1,1]],
+    minMoves: 9,
+  },
+  {
+    name: 'ステージ 20',
+    grid: [
+      [E(), E(), makeCell('source',2), E(), E()],
+      [E(), makeCell('l',3), makeCell('t',0), makeCell('l',0), E()],
+      [E(), makeCell('straight',1), E(), makeCell('straight',1), E()],
+      [E(), makeCell('straight',1), E(), makeCell('straight',1), E()],
+      [E(), makeCell('bulb',0), E(), makeCell('bulb',0), E()],
+    ],
+    solution: [[0,0,0,0,0],[0,1,2,2,0],[0,0,0,0,0],[0,0,0,0,0],[0,2,0,2,0]],
+    minMoves: 16,
+  },
+  {
+    name: 'ステージ 21',
+    grid: [
+      [makeCell('source',0), makeCell('straight',0), makeCell('straight',0), makeCell('straight',0), makeCell('l',3)],
+      [E(), E(), E(), E(), makeCell('straight',1)],
+      [E(), E(), E(), E(), makeCell('straight',1)],
+      [E(), makeCell('l',3), makeCell('straight',0), makeCell('straight',0), makeCell('l',1)],
+      [E(), makeCell('bulb',0), E(), E(), E()],
+    ],
+    solution: [[3,1,1,1,2],[0,0,0,0,0],[0,0,0,0,0],[0,1,1,1,3],[0,2,0,0,0]],
+    minMoves: 15,
+  },
+  {
+    name: 'ステージ 22',
+    grid: [
+      [makeCell('source',2), makeCell('l',2), E(), makeCell('l',2), makeCell('bulb',1)],
+      [makeCell('straight',1), makeCell('straight',1), makeCell('straight',1), makeCell('straight',1), makeCell('straight',1)],
+      [makeCell('l',2), makeCell('straight',0), makeCell('cross',0), makeCell('straight',0), makeCell('l',1)],
+      [E(), E(), makeCell('straight',1), E(), E()],
+      [E(), E(), makeCell('bulb',1), E(), E()],
+    ],
+    solution: [[0,0,0,0,0],[0,0,0,0,0],[0,1,0,1,3],[0,0,0,0,0],[0,0,2,0,0]],
+    minMoves: 13,
+  },
+  {
+    name: 'ステージ 23',
+    grid: [
+      [E(), E(), makeCell('source',2), E(), E()],
+      [E(), E(), makeCell('straight',1), E(), E()],
+      [makeCell('bulb',1), makeCell('straight',0), makeCell('cross',0), makeCell('straight',0), makeCell('bulb',3)],
+      [E(), E(), makeCell('straight',1), E(), E()],
+      [E(), E(), makeCell('bulb',1), E(), E()],
+    ],
+    solution: [[0,0,0,0,0],[0,0,0,0,0],[3,1,0,1,1],[0,0,0,0,0],[0,0,2,0,0]],
+    minMoves: 11,
+  },
+  {
+    name: 'ステージ 24',
+    grid: [
+      [makeCell('source',0), makeCell('straight',0), makeCell('straight',0), makeCell('straight',0), makeCell('l',3)],
+      [E(), E(), E(), E(), makeCell('straight',1)],
+      [makeCell('l',3), makeCell('straight',0), makeCell('straight',0), makeCell('cross',0), makeCell('l',1)],
+      [makeCell('straight',1), E(), E(), E(), E()],
+      [makeCell('l',2), makeCell('straight',0), makeCell('straight',0), makeCell('straight',0), makeCell('bulb',3)],
+    ],
+    solution: [[3,1,1,1,2],[0,0,0,0,0],[1,1,1,0,3],[0,0,0,0,0],[0,1,1,1,1]],
+    minMoves: 20,
+  },
+  {
+    name: 'ステージ 25',
+    grid: [
+      [makeCell('source',0), makeCell('straight',0), makeCell('t',2), makeCell('straight',0), makeCell('bulb',3)],
+      [E(), E(), makeCell('straight',1), E(), E()],
+      [E(), E(), makeCell('cross',0), E(), E()],
+      [E(), E(), makeCell('bridge',0), E(), E()],
+      [E(), E(), makeCell('bulb',1), E(), E()],
+    ],
+    solution: [[3,1,0,1,1],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,2,0,0]],
+    minMoves: 9,
+  },
+  // Stage 26: One-way valve intro
+  {
+    name: 'ワンウェイ入門',
+    grid: [
+      [makeCell('source',0), E(),                  E()],
+      [ow(0),                E(),                  E()],
+      [makeCell('l',0),      makeCell('straight',0), makeCell('bulb',0)],
+    ],
+    solution: [
+      [0, 0, 0],
+      [2, 0, 0],
+      [0, 1, 1],
+    ],
+    minMoves: 4,
+  },
+  // Stage 27: Switch + gate intro
+  {
+    name: 'スイッチ入門',
+    grid: [
+      [makeCell('source',0), E(),                  E()],
+      [makeCell('cross',0),  makeCell('straight',0), sw('A')],
+      [gt('A',0),            E(),                  E()],
+      [makeCell('bulb',0),   E(),                  E()],
+    ],
+    solution: [
+      [0, 0, 0],
+      [0, 1, 0],
+      [0, 0, 0],
+      [2, 0, 0],
+    ],
+    minMoves: 3,
+  },
+  // Stage 28: Color circuit intro
+  {
+    name: 'カラー入門',
+    grid: [
+      [srcC(0,'red'),    makeCell('straight',0), bulbC(0,'red')],
+      [E(),              E(),                    E()],
+      [srcC(0,'yellow'), makeCell('straight',0), bulbC(0,'yellow')],
+    ],
+    solution: [
+      [3, 1, 1],
+      [0, 0, 0],
+      [3, 1, 1],
+    ],
+    minMoves: 6,
+  },
+  // Stage 29: One-way branch — T-junction with two diode paths
+  {
+    name: 'ワンウェイ分岐',
+    grid: [
+      [makeCell('source',2), ow(0),               makeCell('t',3),       makeCell('bulb',0)],
+      [E(),                  E(),                  ow(1),                 E()],
+      [E(),                  E(),                  makeCell('bulb',1),    E()],
+    ],
+    solution: [
+      [3, 1, 0, 1],
+      [0, 0, 2, 0],
+      [0, 0, 2, 0],
+    ],
+    minMoves: 6,
+  },
+  // Stage 30: Zigzag — power snakes through 3 diodes in Z-shape
+  {
+    name: 'ジグザグ',
+    grid: [
+      [makeCell('source',3), E(),    makeCell('bulb',3)],
+      [ow(1),                E(),    ow(3)],
+      [makeCell('l',3),      ow(0),  makeCell('l',2)],
+    ],
+    solution: [
+      [0, 0, 0],
+      [2, 0, 0],
+      [0, 1, 3],
+    ],
+    minMoves: 7,
+  },
+  // Stage 31: Double route — T-junction splits into two diode paths, each reaching a bulb
+  {
+    name: 'ダブルルート',
+    grid: [
+      [makeCell('source',2), ow(0),               makeCell('t',3),       makeCell('l',2)],
+      [E(),                  E(),                  ow(1),                 makeCell('bulb',2)],
+      [E(),                  E(),                  makeCell('l',3),       makeCell('bulb',0)],
+    ],
+    solution: [
+      [3, 1, 0, 2],
+      [0, 0, 2, 2],
+      [0, 0, 0, 1],
+    ],
+    minMoves: 6,
+  },
+  // Stage 32: Fork — T-junction sends power to two bulbs
+  {
+    name: 'フォーク',
+    grid: [
+      [makeCell('source', 2), makeCell('l', 0), E(), E()],
+      [E(), makeCell('t', 0), makeCell('straight', 0), makeCell('bulb', 1)],
+      [E(), makeCell('straight', 0), E(), E()],
+      [E(), makeCell('bulb', 2), E(), E()],
+    ],
+    solution: [[3,2,0,0],[0,3,1,1],[0,0,0,0],[0,2,0,0]],
+    minMoves: 7,
+  },
+  // Stage 33: Snake — serpentine across 3×5 grid
+  {
+    name: 'スネーク',
+    grid: [
+      [makeCell('source', 0), makeCell('straight', 0), makeCell('straight', 0), makeCell('straight', 0), makeCell('l', 0)],
+      [E(), E(), E(), E(), makeCell('straight', 1)],
+      [makeCell('bulb', 3), makeCell('straight', 0), makeCell('straight', 0), makeCell('straight', 0), makeCell('l', 1)],
+    ],
+    solution: [[3,1,1,1,2],[0,0,0,0,0],[3,1,1,1,3]],
+    minMoves: 12,
+  },
+  // Stage 34: U-shape — power loops around a U-turn
+  {
+    name: 'コの字',
+    grid: [
+      [makeCell('source', 0), makeCell('straight', 0), makeCell('straight', 0), makeCell('l', 0)],
+      [E(), E(), E(), makeCell('straight', 1)],
+      [E(), E(), E(), makeCell('straight', 1)],
+      [makeCell('bulb', 3), makeCell('straight', 0), makeCell('straight', 0), makeCell('l', 1)],
+    ],
+    solution: [[3,1,1,2],[0,0,0,0],[0,0,0,0],[3,1,1,3]],
+    minMoves: 11,
+  },
+  // Stage 35: Crossroad — source bends to cross, cross powers two bulbs
+  {
+    name: 'クロスロード',
+    grid: [
+      [makeCell('source', 0), makeCell('straight', 0), makeCell('l', 0), E(), E()],
+      [E(), E(), makeCell('straight', 1), E(), E()],
+      [E(), E(), makeCell('cross', 0), makeCell('straight', 0), makeCell('bulb', 1)],
+      [E(), E(), makeCell('straight', 1), E(), E()],
+      [E(), E(), makeCell('bulb', 2), E(), E()],
+    ],
+    solution: [[3,1,2,0,0],[0,0,0,0,0],[0,0,0,1,1],[0,0,0,0,0],[0,0,2,0,0]],
+    minMoves: 9,
+  },
+  // Stage 36: Bridge maze — T-junction with horizontal bridge crossing
+  {
+    name: 'ブリッジ迷路',
+    grid: [
+      [makeCell('source', 0), E(), E(), E(), E()],
+      [makeCell('t', 0), makeCell('straight', 0), makeCell('bridge', 0), makeCell('straight', 0), makeCell('bulb', 1)],
+      [makeCell('straight', 1), E(), E(), E(), E()],
+      [makeCell('bulb', 2), E(), E(), E(), E()],
+    ],
+    solution: [[0,0,0,0,0],[3,1,0,1,1],[0,0,0,0,0],[2,0,0,0,0]],
+    minMoves: 6,
+  },
+  // Stage 37: Color double — two colored paths to matching bulbs
+  {
+    name: 'カラーダブル',
+    grid: [
+      [srcC(0, 'red'), makeCell('l', 0), E(), E()],
+      [E(), makeCell('straight', 1), E(), E()],
+      [E(), makeCell('l', 2), makeCell('straight', 0), bulbC(1, 'red')],
+      [srcC(0, 'yellow'), makeCell('straight', 0), makeCell('straight', 0), bulbC(1, 'yellow')],
+    ],
+    solution: [[3,2,0,0],[0,0,0,0],[0,0,1,1],[3,1,1,1]],
+    minMoves: 12,
+  },
+  // Stage 38: Diode spiral — three one-way pieces in a zigzag
+  {
+    name: 'ダイオードスパイラル',
+    grid: [
+      [makeCell('source', 0), ow(0), makeCell('l', 0), E()],
+      [E(), E(), makeCell('straight', 1), E()],
+      [E(), E(), ow(0), E()],
+      [E(), E(), makeCell('l', 2), makeCell('bulb', 1)],
+    ],
+    solution: [[3,1,2,0],[0,0,0,0],[0,0,2,0],[0,0,0,1]],
+    minMoves: 9,
+  },
+  // Stage 39: Double T — two T-junctions power three bulbs
+  {
+    name: 'ダブルT',
+    grid: [
+      [E(), E(), makeCell('source', 0), E(), E()],
+      [E(), E(), makeCell('straight', 1), E(), E()],
+      [E(), E(), makeCell('t', 0), makeCell('straight', 0), makeCell('bulb', 1)],
+      [makeCell('bulb', 3), makeCell('straight', 0), makeCell('t', 0), E(), E()],
+    ],
+    solution: [[0,0,0,0,0],[0,0,0,0,0],[0,0,3,1,1],[3,1,2,0,0]],
+    minMoves: 8,
+  },
+  // Stage 40: Big snake — full 5×5 serpentine
+  {
+    name: '大スネーク',
+    grid: [
+      [makeCell('source', 0), makeCell('straight', 0), makeCell('straight', 0), makeCell('straight', 0), makeCell('l', 0)],
+      [E(), E(), E(), E(), makeCell('straight', 1)],
+      [makeCell('l', 0), makeCell('straight', 0), makeCell('straight', 0), makeCell('straight', 0), makeCell('l', 1)],
+      [makeCell('straight', 0), E(), E(), E(), E()],
+      [makeCell('l', 2), makeCell('straight', 0), makeCell('straight', 0), makeCell('straight', 0), makeCell('bulb', 1)],
+    ],
+    solution: [[3,1,1,1,2],[0,0,0,0,0],[1,1,1,1,3],[0,0,0,0,0],[0,1,1,1,1]],
+    minMoves: 18,
+  },
+  // Stage 41: Grand Finale — 5×5 two-split path to two bulbs
+  {
+    name: 'グランドフィナーレ',
+    grid: [
+      [E(), E(), makeCell('source', 0), E(), E()],
+      [E(), E(), makeCell('straight', 1), E(), E()],
+      [E(), E(), makeCell('t', 1), makeCell('straight', 0), makeCell('l', 0)],
+      [E(), E(), makeCell('straight', 1), E(), makeCell('straight', 1)],
+      [makeCell('bulb', 3), makeCell('straight', 0), makeCell('l', 1), E(), makeCell('bulb', 2)],
+    ],
+    solution: [[0,0,0,0,0],[0,0,0,0,0],[0,0,3,1,2],[0,0,0,0,0],[3,1,3,0,2]],
+    minMoves: 11,
+  },
+  {
+    name: 'ターン',
+    grid: [
+      [E(), E(), makeCell('source',1), makeCell('l',3)],
+      [E(), E(), E(), makeCell('straight',1)],
+      [E(), makeCell('bulb',2), makeCell('straight',0), makeCell('l',2)],
+    ],
+    solution: [[0,0,3,2],[0,0,0,0],[0,3,1,3]],
+    minMoves: 7,
+  },
+  {
+    name: 'コーナー',
+    grid: [
+      [E(), makeCell('l',2), makeCell('straight',0), makeCell('straight',0), makeCell('l',0)],
+      [E(), makeCell('l',1), makeCell('l',0), E(), makeCell('bulb',1)],
+      [E(), E(), makeCell('source',3), E(), E()],
+    ],
+    solution: [[0,1,1,1,2],[0,0,2,0,2],[0,0,2,0,0]],
+    minMoves: 10,
+  },
+  {
+    name: 'U字回路',
+    grid: [
+      [makeCell('l',2), makeCell('l',0), makeCell('bulb',3), E(), E(), E()],
+      [makeCell('straight',1), makeCell('straight',1), makeCell('straight',1), E(), E(), E()],
+      [makeCell('source',0), makeCell('l',3), makeCell('l',2), E(), E(), E()],
+    ],
+    solution: [[1,2,0,0,0,0],[0,0,0,0,0,0],[2,0,3,0,0,0]],
+    minMoves: 11,
+  },
+  {
+    name: '折返し',
+    grid: [
+      [E(), makeCell('source',1), makeCell('straight',0), makeCell('l',0), makeCell('l',2), makeCell('l',0), E()],
+      [E(), E(), E(), makeCell('l',1), makeCell('l',1), makeCell('straight',1), E()],
+      [E(), E(), E(), E(), makeCell('bulb',1), makeCell('l',2), E()],
+    ],
+    solution: [[0,3,1,2,1,2,0],[0,0,0,0,3,0,0],[0,0,0,0,3,3,0]],
+    minMoves: 15,
+  },
+  {
+    name: 'ノコギリ',
+    grid: [
+      [makeCell('l',2), makeCell('straight',0), makeCell('l',1), makeCell('bulb',0), makeCell('l',0), E(), E(), E()],
+      [makeCell('l',2), makeCell('source',3), makeCell('l',3), makeCell('l',3), makeCell('straight',1), E(), E(), E()],
+      [E(), E(), E(), makeCell('l',2), makeCell('l',0), E(), E(), E()],
+    ],
+    solution: [[1,1,2,3,2,0,0,0],[0,1,0,2,0,0,0,0],[0,0,0,0,3,0,0,0]],
+    minMoves: 16,
+  },
+  {
+    name: '迷路の入口',
+    grid: [
+      [E(), E(), E(), E(), E()],
+      [makeCell('l',2), makeCell('bulb',2), E(), E(), E()],
+      [makeCell('l',1), makeCell('l',1), E(), E(), makeCell('source',2)],
+      [E(), makeCell('l',2), makeCell('straight',0), makeCell('straight',0), makeCell('l',2)],
+    ],
+    solution: [[0,0,0,0,0],[1,1,0,0,0],[0,2,0,0,0],[0,0,1,1,3]],
+    minMoves: 11,
+  },
+  {
+    name: '蛇の道',
+    grid: [
+      [makeCell('l',3), makeCell('straight',0), makeCell('straight',0), makeCell('l',1), E()],
+      [makeCell('straight',1), E(), makeCell('l',0), makeCell('l',2), E()],
+      [makeCell('l',3), makeCell('source',2), makeCell('straight',1), E(), E()],
+      [E(), E(), makeCell('l',2), makeCell('bulb',0), E()],
+    ],
+    solution: [[1,1,1,2,0],[0,0,1,3,0],[0,1,0,0,0],[0,0,0,1,0]],
+    minMoves: 14,
+  },
+  {
+    name: 'ツインパス',
+    grid: [
+      [E(), E(), makeCell('l',0), makeCell('straight',0), makeCell('straight',0), makeCell('l',1)],
+      [makeCell('source',2), makeCell('l',0), makeCell('l',2), E(), makeCell('l',2), makeCell('l',2)],
+      [makeCell('l',1), makeCell('l',2), E(), E(), makeCell('bulb',0), E()],
+      [E(), E(), E(), E(), E(), E()],
+    ],
+    solution: [[0,0,1,1,1,2],[0,1,3,0,1,3],[0,3,0,0,2,0],[0,0,0,0,0,0]],
+    minMoves: 14,
+  },
+  {
+    name: 'ロングパス',
+    grid: [
+      [E(), E(), makeCell('l',0), makeCell('straight',0), makeCell('l',0), makeCell('l',3), makeCell('l',0)],
+      [E(), E(), makeCell('l',2), makeCell('l',3), makeCell('l',2), makeCell('l',2), makeCell('source',1)],
+      [E(), E(), E(), makeCell('straight',1), makeCell('l',2), makeCell('bulb',3), E()],
+      [E(), E(), E(), makeCell('l',1), makeCell('l',2), E(), E()],
+    ],
+    solution: [[0,0,1,1,2,1,2],[0,0,0,2,0,3,2],[0,0,0,0,1,1,0],[0,0,0,0,3,0,0]],
+    minMoves: 21,
+  },
+  {
+    name: '道中',
+    grid: [
+      [E(), E(), makeCell('l',0), makeCell('straight',0), makeCell('straight',0), makeCell('straight',0), makeCell('l',3)],
+      [E(), E(), makeCell('l',2), makeCell('l',3), E(), E(), makeCell('bulb',0)],
+      [E(), E(), makeCell('l',0), makeCell('l',1), makeCell('source',1), makeCell('l',0), E()],
+      [E(), E(), makeCell('l',1), makeCell('straight',0), makeCell('straight',0), makeCell('l',1), E()],
+    ],
+    solution: [[0,0,1,1,1,1,2],[0,0,0,2,0,0,2],[0,0,1,3,3,2,0],[0,0,0,1,1,3,0]],
+    minMoves: 22,
+  },
+  {
+    name: '交差I',
+    grid: [
+      [makeCell('l',2), makeCell('l',3), E(), E(), E()],
+      [makeCell('straight',1), makeCell('straight',1), E(), E(), E()],
+      [makeCell('bulb',3), makeCell('straight',1), E(), E(), E()],
+      [E(), makeCell('l',3), makeCell('straight',0), makeCell('l',3), E()],
+      [E(), E(), E(), makeCell('source',1), E()],
+    ],
+    solution: [[1,2,0,0,0],[0,0,0,0,0],[2,0,0,0,0],[0,0,1,2,0],[0,0,0,2,0]],
+    minMoves: 10,
+  },
+  {
+    name: 'クロス迷路',
+    grid: [
+      [E(), E(), E(), E(), E()],
+      [E(), makeCell('l',0), makeCell('straight',0), makeCell('l',1), E()],
+      [E(), makeCell('source',3), makeCell('l',0), makeCell('l',2), E()],
+      [E(), E(), makeCell('straight',1), makeCell('l',3), makeCell('l',3)],
+      [E(), E(), makeCell('l',1), makeCell('l',2), makeCell('bulb',3)],
+    ],
+    solution: [[0,0,0,0,0],[0,1,1,2,0],[0,2,1,3,0],[0,0,0,1,2],[0,0,0,3,2]],
+    minMoves: 13,
+  },
+  {
+    name: 'ブリッジ大橋',
+    grid: [
+      [makeCell('l',2), makeCell('l',3), E(), E(), E()],
+      [makeCell('straight',1), makeCell('l',2), makeCell('l',0), E(), E()],
+      [makeCell('straight',1), E(), makeCell('l',3), makeCell('source',3), E()],
+      [makeCell('straight',1), E(), E(), E(), E()],
+      [makeCell('l',1), makeCell('straight',0), makeCell('straight',0), makeCell('straight',0), makeCell('bulb',2)],
+    ],
+    solution: [[1,2,0,0,0],[0,0,2,0,0],[0,0,0,1,0],[0,0,0,0,0],[0,1,1,1,1]],
+    minMoves: 17,
+  },
+  {
+    name: '重なる道',
+    grid: [
+      [E(), E(), makeCell('l',0), makeCell('source',0), E()],
+      [E(), E(), makeCell('l',2), makeCell('l',3), E()],
+      [E(), E(), E(), makeCell('l',1), makeCell('l',1)],
+      [makeCell('l',3), makeCell('straight',0), makeCell('straight',0), makeCell('straight',0), makeCell('l',2)],
+      [makeCell('l',3), makeCell('straight',0), makeCell('straight',0), makeCell('straight',0), makeCell('bulb',2)],
+    ],
+    solution: [[0,0,1,1,0],[0,0,0,2,0],[0,0,0,0,2],[1,1,1,1,3],[0,1,1,1,1]],
+    minMoves: 18,
+  },
+  {
+    name: 'レイヤード',
+    grid: [
+      [E(), makeCell('l',3), makeCell('l',0), E(), E()],
+      [makeCell('l',0), makeCell('l',1), makeCell('straight',1), E(), E()],
+      [makeCell('source',1), makeCell('l',2), makeCell('l',2), makeCell('bulb',0), makeCell('l',1)],
+      [makeCell('l',0), makeCell('l',0), makeCell('l',3), makeCell('straight',0), makeCell('l',1)],
+      [makeCell('l',2), makeCell('straight',0), makeCell('l',2), E(), E()],
+    ],
+    solution: [[0,1,2,0,0],[1,3,0,0,0],[2,1,3,3,2],[1,3,1,1,3],[0,1,3,0,0]],
+    minMoves: 24,
+  },
+  {
+    name: '二股I',
+    grid: [
+      [E(), E(), E(), E(), E()],
+      [E(), E(), makeCell('l',3), makeCell('t',2), makeCell('l',1)],
+      [E(), E(), makeCell('bulb',1), makeCell('straight',1), makeCell('bulb',0)],
+      [E(), E(), E(), makeCell('source',1), E()],
+    ],
+    solution: [[0,0,0,0,0],[0,0,1,0,2],[0,0,2,0,2],[0,0,0,2,0]],
+    minMoves: 10,
+  },
+  {
+    name: '三叉路',
+    grid: [
+      [E(), E(), E(), E(), makeCell('bulb',1)],
+      [E(), E(), E(), E(), makeCell('straight',1)],
+      [E(), makeCell('bulb',1), makeCell('l',3), makeCell('l',0), makeCell('l',0)],
+      [E(), E(), makeCell('l',2), makeCell('t',3), makeCell('l',0)],
+      [E(), E(), makeCell('source',0), makeCell('straight',0), makeCell('l',2)],
+    ],
+    solution: [[0,0,0,0,0],[0,0,0,0,0],[0,3,2,1,3],[0,0,0,2,2],[0,0,3,1,3]],
+    minMoves: 15,
+  },
+  {
+    name: '双子の電球',
+    grid: [
+      [E(), E(), makeCell('source',2), makeCell('l',1), makeCell('bulb',2)],
+      [E(), E(), E(), makeCell('straight',1), makeCell('straight',1)],
+      [E(), E(), makeCell('l',2), makeCell('t',3), makeCell('l',1)],
+      [E(), E(), makeCell('l',2), makeCell('bulb',2), E()],
+      [E(), E(), E(), E(), E()],
+      [E(), E(), E(), E(), E()],
+    ],
+    solution: [[0,0,3,2,0],[0,0,0,0,0],[0,0,1,2,3],[0,0,0,1,0],[0,0,0,0,0],[0,0,0,0,0]],
+    minMoves: 13,
+  },
+  {
+    name: '並行回路',
+    grid: [
+      [E(), E(), E(), E(), E()],
+      [E(), E(), E(), E(), E()],
+      [E(), E(), E(), E(), E()],
+      [E(), E(), E(), makeCell('bulb',2), E()],
+      [E(), E(), makeCell('bulb',3), makeCell('straight',1), E()],
+      [E(), E(), makeCell('l',1), makeCell('t',0), makeCell('l',0)],
+      [E(), E(), E(), E(), makeCell('source',0)],
+    ],
+    solution: [[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,2,2],[0,0,0,0,2]],
+    minMoves: 11,
+  },
+  {
+    name: '分岐迷宮',
+    grid: [
+      [E(), makeCell('l',2), makeCell('straight',0), makeCell('t',3), makeCell('bulb',2)],
+      [E(), makeCell('bulb',0), E(), makeCell('l',3), makeCell('l',1)],
+      [E(), E(), E(), E(), makeCell('source',1)],
+      [E(), E(), E(), E(), E()],
+      [E(), E(), E(), E(), E()],
+      [E(), E(), E(), E(), E()],
+      [E(), E(), E(), E(), E()],
+      [E(), E(), E(), E(), E()],
+    ],
+    solution: [[0,1,1,0,1],[0,2,0,0,2],[0,0,0,0,2],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]],
+    minMoves: 9,
+  },
+  {
+    name: '熟練I',
+    grid: [
+      [E(), makeCell('source',0), makeCell('l',3), makeCell('bulb',2), makeCell('l',3)],
+      [E(), E(), makeCell('l',3), makeCell('t',2), makeCell('l',0)],
+      [E(), E(), E(), makeCell('straight',1), E()],
+      [E(), E(), E(), makeCell('bulb',0), E()],
+      [E(), E(), E(), E(), E()],
+    ],
+    solution: [[0,3,2,3,2],[0,0,0,0,3],[0,0,0,0,0],[0,0,0,2,0],[0,0,0,0,0]],
+    minMoves: 11,
+  },
+  {
+    name: '名人I',
+    grid: [
+      [E(), E(), E(), makeCell('l',2), makeCell('l',0)],
+      [E(), makeCell('l',3), makeCell('straight',0), makeCell('t',3), makeCell('straight',1)],
+      [E(), makeCell('straight',1), E(), makeCell('straight',1), makeCell('source',0)],
+      [E(), makeCell('bulb',1), E(), makeCell('straight',1), makeCell('bulb',2)],
+      [E(), E(), E(), makeCell('l',1), makeCell('l',0)],
+    ],
+    solution: [[0,0,0,1,2],[0,1,1,1,0],[0,0,0,0,2],[0,2,0,0,0],[0,0,0,0,3]],
+    minMoves: 19,
+  },
+  {
+    name: '達人I',
+    grid: [
+      [E(), E(), makeCell('l',0), makeCell('bulb',3), makeCell('bulb',1)],
+      [E(), E(), makeCell('l',3), makeCell('t',1), makeCell('l',0)],
+      [E(), E(), E(), makeCell('l',2), makeCell('l',3)],
+      [E(), E(), E(), E(), makeCell('source',0)],
+      [E(), E(), E(), E(), E()],
+    ],
+    solution: [[0,0,1,1,0],[0,0,0,0,3],[0,0,0,0,2],[0,0,0,0,2],[0,0,0,0,0]],
+    minMoves: 12,
+  },
+  {
+    name: '賢者I',
+    grid: [
+      [E(), E(), makeCell('bulb',2), makeCell('bulb',1), makeCell('l',1)],
+      [E(), E(), makeCell('l',1), makeCell('straight',0), makeCell('t',2)],
+      [E(), E(), makeCell('source',1), makeCell('straight',0), makeCell('l',1)],
+      [E(), E(), E(), E(), E()],
+      [E(), E(), E(), E(), E()],
+    ],
+    solution: [[0,0,0,3,2],[0,0,0,1,1],[0,0,3,1,3],[0,0,0,0,0],[0,0,0,0,0]],
+    minMoves: 13,
+  },
+  {
+    name: '聖人',
+    grid: [
+      [E(), E(), makeCell('bulb',3), E(), E()],
+      [E(), E(), makeCell('straight',1), makeCell('source',0), makeCell('l',0)],
+      [E(), E(), makeCell('straight',1), makeCell('l',0), makeCell('l',1)],
+      [E(), E(), makeCell('l',3), makeCell('t',0), makeCell('bulb',1)],
+      [E(), E(), E(), makeCell('l',2), makeCell('l',2)],
+    ],
+    solution: [[0,0,0,0,0],[0,0,0,3,2],[0,0,0,1,3],[0,0,0,1,0],[0,0,0,0,3]],
+    minMoves: 15,
+  },
+  {
+    name: '伝説I',
+    grid: [
+      [makeCell('l',0), makeCell('straight',0), makeCell('l',3), makeCell('l',2), makeCell('l',0)],
+      [makeCell('l',3), makeCell('l',3), makeCell('l',1), makeCell('l',0), makeCell('straight',1)],
+      [E(), makeCell('l',2), makeCell('bulb',2), makeCell('l',3), makeCell('l',1)],
+      [E(), E(), E(), makeCell('l',3), makeCell('source',3)],
+      [E(), E(), E(), E(), E()],
+    ],
+    solution: [[1,1,2,1,2],[0,2,0,3,0],[0,0,1,1,3],[0,0,0,0,1],[0,0,0,0,0]],
+    minMoves: 21,
+  },
+  {
+    name: '神話I',
+    grid: [
+      [makeCell('l',2), makeCell('straight',0), makeCell('straight',0), makeCell('straight',0), makeCell('l',1)],
+      [makeCell('l',3), makeCell('straight',0), makeCell('straight',0), makeCell('l',0), makeCell('bulb',0)],
+      [E(), E(), makeCell('l',3), makeCell('l',2), makeCell('source',3)],
+      [E(), E(), makeCell('l',2), makeCell('l',0), makeCell('straight',1)],
+      [E(), E(), E(), makeCell('l',2), makeCell('l',2)],
+    ],
+    solution: [[1,1,1,1,2],[0,1,1,2,2],[0,0,1,3,0],[0,0,0,2,0],[0,0,0,0,3]],
+    minMoves: 24,
+  },
+  {
+    name: '終焉I',
+    grid: [
+      [makeCell('bulb',2), makeCell('l',3), makeCell('straight',0), makeCell('straight',0), makeCell('l',0)],
+      [makeCell('straight',1), makeCell('l',3), makeCell('source',0), E(), makeCell('straight',1)],
+      [makeCell('straight',1), E(), E(), makeCell('l',2), makeCell('l',1)],
+      [makeCell('straight',1), makeCell('l',2), makeCell('straight',0), makeCell('l',2), E()],
+      [makeCell('l',1), makeCell('l',2), E(), E(), E()],
+    ],
+    solution: [[0,1,1,1,2],[0,0,1,0,0],[0,0,0,1,3],[0,1,1,3,0],[0,3,0,0,0]],
+    minMoves: 22,
+  },
+  {
+    name: '永劫',
+    grid: [
+      [makeCell('l',3), makeCell('bulb',3), makeCell('l',0), makeCell('straight',0), makeCell('l',1)],
+      [makeCell('l',2), makeCell('l',1), makeCell('l',1), makeCell('l',3), makeCell('straight',1)],
+      [E(), makeCell('straight',1), E(), makeCell('source',3), makeCell('straight',1)],
+      [E(), makeCell('l',3), makeCell('straight',0), makeCell('l',1), makeCell('straight',1)],
+      [E(), E(), E(), makeCell('l',2), makeCell('l',0)],
+    ],
+    solution: [[1,1,1,1,2],[0,2,0,2,0],[0,0,0,2,0],[0,0,1,2,0],[0,0,0,0,3]],
+    minMoves: 23,
+  },
+  {
+    name: '終末',
+    grid: [
+      [makeCell('l',3), makeCell('straight',0), makeCell('straight',0), makeCell('straight',0), makeCell('bulb',2)],
+      [makeCell('l',3), makeCell('straight',0), makeCell('l',1), E(), E()],
+      [makeCell('l',3), makeCell('source',2), makeCell('l',1), makeCell('l',0), E()],
+      [makeCell('straight',1), E(), E(), makeCell('l',1), makeCell('l',3)],
+      [makeCell('l',2), makeCell('straight',0), makeCell('straight',0), makeCell('straight',0), makeCell('l',1)],
+    ],
+    solution: [[1,1,1,1,1],[0,1,2,0,0],[1,1,0,2,0],[0,0,0,0,2],[0,1,1,1,3]],
+    minMoves: 25,
+  },
+  {
+    name: '究極の試練',
+    grid: [
+      [makeCell('l',0), makeCell('l',3), makeCell('l',2), makeCell('l',3), makeCell('bulb',2)],
+      [makeCell('straight',1), makeCell('l',1), makeCell('l',2), makeCell('straight',1), makeCell('straight',1)],
+      [makeCell('l',1), makeCell('l',0), makeCell('source',3), makeCell('straight',1), makeCell('straight',1)],
+      [makeCell('l',0), makeCell('l',1), makeCell('straight',1), makeCell('l',3), makeCell('l',2)],
+      [makeCell('l',1), makeCell('straight',0), makeCell('l',1), E(), E()],
+    ],
+    solution: [[1,2,1,2,0],[0,0,3,0,0],[0,2,0,0,0],[1,3,0,0,3],[0,1,3,0,0]],
+    minMoves: 27,
+  },
+  {
+    name: '抵抗器入門',
+    grid: [
+      [makeCell('source', 0, false, {initialPower: 3}), makeCell('resistor', 0), makeCell('resistor', 0), makeCell('bulb', 0)],
+    ],
+    solution: [[3,1,1,1]],
+    minMoves: 4,
+    tutorialId: 'resistor',
+    tutorial: {
+      title: '🔻 抵抗器',
+      body: '抵抗器を通ると電力が 1 ずつ下がります。\n電源の数字は出力電力（左下に表示）。\n電球は電力 1 以上で点灯します。\n\n例: 電源 3 → 抵抗器 → 2 → 抵抗器 → 1 → 電球✓',
+    },
+  },
+  {
+    name: '増幅器入門',
+    grid: [
+      [makeCell('source', 0, false, {initialPower: 1}), makeCell('amp', 0), makeCell('resistor', 0), makeCell('bulb', 0)],
+    ],
+    solution: [[3,1,1,1]],
+    minMoves: 4,
+    tutorialId: 'amplifier',
+    tutorial: {
+      title: '🔺 増幅器',
+      body: '増幅器を通ると電力が 1 ずつ上がります。\n弱い電源と組み合わせて、抵抗器を越えるのに使えます。\n\n例: 電源 1 → 増幅器 → 2 → 抵抗器 → 1 → 電球✓',
+    },
+  },
+  {
+    name: 'L字抵抗',
+    grid: [
+      [makeCell('source', 0, false, {initialPower: 3}), makeCell('resistorL', 0), E()],
+      [E(), makeCell('resistorL', 0), makeCell('bulb', 0)],
+    ],
+    solution: [[3,2,0],[0,0,1]],
+    minMoves: 4,
+  },
+  {
+    name: '分岐の壁',
+    grid: [
+      [makeCell('source', 0, false, {initialPower: 3}), E(), E()],
+      [makeCell('t', 0), makeCell('resistor', 0), makeCell('bulb', 0)],
+      [makeCell('resistor', 0), E(), E()],
+      [makeCell('bulb', 0), E(), E()],
+    ],
+    solution: [[0,0,0],[3,1,1],[0,0,0],[2,0,0]],
+    minMoves: 5,
+  },
+  {
+    name: '電力工学',
+    grid: [
+      [makeCell('source', 0, false, {initialPower: 1}), makeCell('amp', 0), makeCell('amp', 0), makeCell('l', 0)],
+      [makeCell('bulb', 0), makeCell('resistor', 0), makeCell('resistor', 0), makeCell('l', 0)],
+    ],
+    solution: [[3,1,1,2],[3,1,1,3]],
+    minMoves: 9,
+  },
+  {
+    name: '歯車入門',
+    grid: [
+      [makeCell('source', 0), makeCell('gear', 0), E()],
+      [E(), makeCell('gear', 2), makeCell('bulb', 0)],
+    ],
+    solution: [[3,2,0],[0,0,1]],
+    minMoves: 4,
+    tutorialId: 'gear',
+    tutorial: {
+      title: '⚙️ 歯車',
+      body: '歯車をクリックすると、隣接する歯車も一緒に回ります。\n隣り合う歯車は反対方向に回り、連鎖して伝わります。\n\n回転の順序を考えながらクリックしましょう。',
+    },
+  },
+  {
+    name: '連鎖の歯車',
+    grid: [
+      [makeCell('source', 0), makeCell('gear', 0), E()],
+      [E(), makeCell('gear', 2), makeCell('gear', 0)],
+      [E(), E(), makeCell('bulb', 1)],
+    ],
+    solution: [[3,2,0],[0,0,2],[0,0,2]],
+    minMoves: 4,
+  },
+  {
+    name: '歯車四重奏',
+    grid: [
+      [makeCell('source', 0), makeCell('gear', 0), E(), E()],
+      [E(), makeCell('gear', 2), makeCell('gear', 0), E()],
+      [E(), E(), makeCell('gear', 2), makeCell('bulb', 0)],
+    ],
+    solution: [[3,2,0,0],[0,0,2,0],[0,0,0,1]],
+    minMoves: 4,
+  },
+  {
+    name: 'ヒューズ入門',
+    grid: [
+      [srcP(0, 3), makeCell('resistorL', 0)],
+      [E(), fuse(1, 2)],
+      [E(), makeCell('bulb', 0)],
+    ],
+    solution: [[3,2],[0,0],[0,2]],
+    minMoves: 6,
+    tutorialId: 'fuse',
+    tutorial: {
+      title: '🧨 ヒューズ',
+      body: 'ヒューズは表示された上限（≤N）を超える電力が流れると焼き切れて遮断します。\n抵抗器で電力を下げてから通しましょう。',
+    },
+  },
+  {
+    name: 'ヒューズ調整',
+    grid: [
+      [srcP(2, 3), E(), E()],
+      [makeCell('resistor', 1), E(), E()],
+      [makeCell('resistorL', 2), fuse(0, 1), makeCell('bulb', 0)],
+    ],
+    solution: [[0,0,0],[0,0,0],[0,1,1]],
+    minMoves: 5,
+  },
+  {
+    name: 'テレポーター入門',
+    grid: [
+      [makeCell('source', 0), portal(0, 'A'), E()],
+      [E(), E(), E()],
+      [portal(0, 'A'), makeCell('bulb', 0), E()],
+    ],
+    solution: [[3,1,0],[0,0,0],[3,1,0]],
+    minMoves: 4,
+    tutorialId: 'portal',
+    tutorial: {
+      title: '🌀 テレポーター',
+      body: '同じ記号のテレポーターはペアです。\n片方に入った電力は、もう片方の出口から飛び出します。\n配線が届かない場所へジャンプできます。',
+    },
+  },
+  {
+    name: 'テレポーター迷路',
+    grid: [
+      [makeCell('source', 2), E(), portal(1, 'A')],
+      [makeCell('straight', 1), E(), makeCell('straight', 1)],
+      [portal(0, 'A'), E(), makeCell('bulb', 0)],
+    ],
+    solution: [[0,0,0],[0,0,0],[2,0,2]],
+    minMoves: 4,
+  },
+  {
+    name: '反転器入門',
+    grid: [
+      [makeCell('source', 0), igt('A', 0), makeCell('bulb', 0)],
+      [E(), E(), E()],
+      [makeCell('source', 0), makeCell('t', 0), makeCell('bulb', 0)],
+      [E(), sw('A'), E()],
+    ],
+    solution: [[3,1,1],[0,0,0],[3,2,1],[0,0,0]],
+    minMoves: 7,
+    tutorialId: 'igate',
+    tutorial: {
+      title: '🔀 反転ゲート',
+      body: '反転ゲート (!記号) は通常ゲートの逆。\nリンクされたスイッチが点灯していない時だけ通れます。\nスイッチに電力を送らないように配線しましょう。',
+    },
+  },
+];
+
+// ─── Stars ───────────────────────────────────────────────────────────────────
+function calcStars(moves, minMoves, hintUsed) {
+  if (hintUsed) return 1;
+  if (moves <= minMoves) return 3;
+  if (moves <= minMoves * 1.5) return 2;
+  return 1;
+}
+
+// ─── Game Screen ─────────────────────────────────────────────────────────────
+function GameScreen({ stageIdx, customStage, stageKey, onBack, onNext, onStageSelect, bestStars, setBestStars, bestMoves, setBestMoves }) {
+  const stage = customStage || STAGES[stageIdx];
+  const saveKey = stageKey !== undefined ? stageKey : (stageIdx != null ? `stage_${stageIdx}` : null);
+
+  const [grid, setGrid] = useState(() =>
+    stage.grid.map(row => row.map(cell => ({ ...cell })))
+  );
+  const [moves, setMoves] = useState(0);
+  const [hintUsed, setHintUsed] = useState(false);
+  const [cleared, setCleared] = useState(false);
+  const [stars, setStars] = useState(0);
+  const [rotatingCells, setRotatingCells] = useState(() => new Map()); // "r-c" -> cw
+  const [history, setHistory] = useState([]); // stack of { grid, moves } snapshots
+  const [isNewBest, setIsNewBest] = useState(false);
+  const tutorialKey = stage.tutorialId ? `cf_tut_${stage.tutorialId}` : null;
+  const [showTutorial, setShowTutorial] = useState(() => {
+    if (!stage.tutorial || !tutorialKey) return false;
+    try { return !localStorage.getItem(tutorialKey); } catch { return true; }
+  });
+  const dismissTutorial = () => {
+    if (tutorialKey) { try { localStorage.setItem(tutorialKey, '1'); } catch {} }
+    setShowTutorial(false);
+  };
+
+  const { powered, byColor, gateOpen, levels, depths } = computePowered(grid);
+  const [flowing, setFlowing] = useState(false);
+  const showLevels = React.useMemo(() => {
+    for (const row of grid) for (const c of row) {
+      if (c.type === 'resistor' || c.type === 'amp' || c.type === 'resistorL' || c.type === 'ampL') return true;
+    }
+    return false;
+  }, [grid]);
+  const solved = isSolved(grid, byColor);
+
+  useEffect(() => {
+    if (solved && !cleared && !flowing) {
+      setFlowing(true);
+      const maxDepth = depths.flat().reduce((a, b) => Math.max(a, b), 0);
+      const animMs = Math.max(450, maxDepth * 90 + 350);
+      const t = setTimeout(() => {
+        playClear();
+        const s = calcStars(moves, stage.minMoves, hintUsed);
+        setStars(s);
+        setCleared(true);
+        if (saveKey) {
+          if (!bestStars[saveKey] || bestStars[saveKey] < s) {
+            setBestStars(prev => ({ ...prev, [saveKey]: s }));
+          }
+          if (bestMoves[saveKey] == null || moves < bestMoves[saveKey]) {
+            setBestMoves(prev => ({ ...prev, [saveKey]: moves }));
+            setIsNewBest(true);
+          }
+        }
+        setFlowing(false);
+      }, animMs);
+      return () => clearTimeout(t);
+    }
+  }, [solved]);
+
+  const prevLitCount = useRef(0);
+  useEffect(() => {
+    if (cleared) { prevLitCount.current = 0; return; }
+    let count = 0;
+    grid.forEach((row, r) => row.forEach((cell, c) => {
+      if (cell.type === 'bulb' && byColor[cell.color || 'cyan']?.[r]?.[c]) count++;
+    }));
+    if (count > prevLitCount.current && !solved) playBulbLit();
+    prevLitCount.current = count;
+  }, [grid]);
+
+  const rotate = useCallback((r, c, cw) => {
+    if (cleared) return;
+    const cell = grid[r][c];
+    if (cell.type === 'empty' || cell.type === 'bridge' || cell.type === 'switch' || cell.locked) return;
+    playRotate();
+    setHistory(h => [...h, { grid: grid.map(row => row.map(c => ({ ...c }))), moves }]);
+
+    // Build set of (r,c) -> cw that will rotate. For gears, chain through adjacent gears with alternating direction.
+    const chain = new Map();
+    chain.set(`${r}-${c}`, cw);
+    if (cell.type === 'gear') {
+      const queue = [[r, c, cw]];
+      while (queue.length) {
+        const [cr, cc, ccw] = queue.shift();
+        for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+          const nr = cr + dr, nc = cc + dc;
+          if (nr < 0 || nr >= grid.length || nc < 0 || nc >= grid[0].length) continue;
+          if (grid[nr][nc].type !== 'gear') continue;
+          if (grid[nr][nc].locked) continue;
+          const key = `${nr}-${nc}`;
+          if (chain.has(key)) continue;
+          chain.set(key, !ccw);
+          queue.push([nr, nc, !ccw]);
+        }
+      }
+    }
+
+    setRotatingCells(chain);
+    setTimeout(() => setRotatingCells(new Map()), 130);
+
+    setGrid(prev => {
+      const next = prev.map(row => row.map(cell => ({ ...cell })));
+      for (const [key, dir] of chain) {
+        const [rr, cc] = key.split('-').map(Number);
+        next[rr][cc].rotation = ((next[rr][cc].rotation + (dir ? 1 : -1)) % 4 + 4) % 4;
+      }
+      return next;
+    });
+    setMoves(m => m + 1);
+  }, [grid, moves, cleared]);
+
+  const handleCellClick = useCallback((r, c) => rotate(r, c, true), [rotate]);
+  const handleCellRightClick = useCallback((r, c, e) => {
+    e.preventDefault();
+    rotate(r, c, false);
+  }, [rotate]);
+
+  const handleHint = useCallback(() => {
+    if (hintUsed || cleared || !stage.solution) return;
+    setHintUsed(true);
+    setGrid(stage.grid.map((row, r) =>
+      row.map((cell, c) => ({ ...cell, rotation: stage.solution[r][c] }))
+    ));
+  }, [hintUsed, cleared, stage]);
+
+  const handleUndo = useCallback(() => {
+    if (history.length === 0 || cleared) return;
+    const prev = history[history.length - 1];
+    setHistory(h => h.slice(0, -1));
+    setGrid(prev.grid);
+    setMoves(prev.moves);
+  }, [history, cleared]);
+
+  const handleRestart = () => {
+    setGrid(stage.grid.map(row => row.map(cell => ({ ...cell }))));
+    setMoves(0);
+    setHintUsed(false);
+    setCleared(false);
+    setStars(0);
+    setHistory([]);
+  };
+
+  const vw = useViewportWidth();
+  const idealCell = grid[0].length <= 3 ? 80 : grid[0].length === 4 ? 68 : 58;
+  const cellSize = fitCellSize(vw, grid[0].length, idealCell);
+
+  return (
+    <div className="screen">
+      <div className="header">
+        <div>
+          <div className="stage-label">Circuit Flow</div>
+          <div className="stage-title">{stage.name}</div>
+        </div>
+        <div>
+          <div className="moves-label">手数</div>
+          <div className="moves-val">{moves}</div>
+        </div>
+      </div>
+
+      <div className="grid-wrapper">
+        <div className="grid" style={{
+          gridTemplateColumns: `repeat(${grid[0].length}, ${cellSize}px)`,
+          gap: '4px',
+        }}>
+          {grid.map((row, r) =>
+            row.map((cell, c) => {
+              const pw = powered[r][c];
+              const wantColor = cell.color || 'cyan';
+              const isLit = solved && cell.type === 'bulb' && byColor[wantColor]?.[r][c];
+              const isGateOpen = cell.type === 'gate'
+                ? !!gateOpen[cell.linkId]
+                : cell.type === 'igate'
+                  ? !gateOpen[cell.linkId]
+                  : false;
+              const rotDir = rotatingCells.get(`${r}-${c}`);
+              const rotClass = rotDir === undefined ? '' : (rotDir ? 'rotating-cw' : 'rotating-ccw');
+              return (
+                <div
+                  key={`${r}-${c}`}
+                  className={`cell ${pw ? 'powered' : ''} ${cell.type === 'source' || cell.type === 'bulb' ? cell.type : ''} ${cell.type === 'bridge' || cell.type === 'switch' ? 'bridge' : ''} ${cell.locked ? 'locked' : ''} ${rotClass}`}
+                  style={{ width: cellSize, height: cellSize }}
+                  onClick={() => handleCellClick(r, c)}
+                  onContextMenu={(e) => handleCellRightClick(r, c, e)}
+                >
+                  <PieceSVG
+                    type={cell.type}
+                    rotation={cell.rotation}
+                    isPowered={!!pw}
+                    isBulbLit={isLit}
+                    isLocked={cell.locked}
+                    size={cellSize}
+                    powerColor={pw}
+                    cellColor={cell.color}
+                    isOpen={isGateOpen}
+                    linkLabel={cell.type === 'fuse' ? (cell.limit ?? 2) : cell.linkId}
+                    level={showLevels ? levels[r][c] : 0}
+                  />
+                  {flowing && depths[r][c] >= 0 && (
+                    <div className="flow-pulse" style={{ animationDelay: `${depths[r][c] * 0.09}s` }} />
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+        <button
+          className={`hint-btn ${history.length === 0 || cleared ? 'used' : ''}`}
+          onClick={handleUndo}
+          disabled={history.length === 0 || cleared}
+          style={{ flex: 1 }}
+        >
+          ↩ 戻す
+        </button>
+        {stage.solution && (
+          <button
+            className={`hint-btn ${hintUsed ? 'used' : ''}`}
+            onClick={handleHint}
+            disabled={hintUsed || cleared}
+            style={{ flex: 1 }}
+          >
+            {hintUsed ? 'ヒント使用済み' : 'ヒント（1回）'}
+          </button>
+        )}
+      </div>
+
+      <div style={{ marginTop: 10, display: 'flex', gap: 10 }}>
+        <button className="btn" onClick={onBack} style={{ flex: 1 }}>← ステージ選択</button>
+        <button className="btn" onClick={handleRestart} style={{ flex: 1 }}>やり直し</button>
+      </div>
+
+      {cleared && (
+        <div className="clear-overlay">
+          <div className="clear-box">
+            <div className="clear-title">CLEAR!</div>
+            <div className="clear-sub">{moves} 手でクリア</div>
+            {stars === 3 && (
+              <div className="perfect-badge">✦ PERFECT ✦</div>
+            )}
+            <div className="stars">
+              {[1,2,3].map(i => (
+                <span key={i} style={{ opacity: i <= stars ? 1 : 0.2 }}>★</span>
+              ))}
+            </div>
+            <div style={{ fontSize: 12, color: '#445', marginBottom: 16, lineHeight: 1.8, textAlign: 'left' }}>
+              <div style={{ color: stars >= 3 ? '#ffd700' : '#445' }}>★★★　{stage.minMoves} 手以内</div>
+              <div style={{ color: stars >= 2 ? '#ffd700' : '#445' }}>★★　　{Math.floor(stage.minMoves * 1.5)} 手以内</div>
+              <div style={{ color: stars >= 1 ? '#aaa' : '#445' }}>★　　　それ以上 / ヒント使用</div>
+            </div>
+            {saveKey && (
+              <div style={{ fontSize: 12, marginBottom: 16, textAlign: 'center', color: isNewBest ? '#7df' : '#556' }}>
+                {isNewBest
+                  ? `🎯 ベスト更新！ ${moves} 手`
+                  : `ベスト: ${bestMoves[saveKey] != null ? bestMoves[saveKey] + ' 手' : '—'}`
+                }
+              </div>
+            )}
+            {onNext && (
+              <button className="btn primary" onClick={onNext}>次のステージへ →</button>
+            )}
+            <button className="btn" onClick={handleRestart}>もう一度</button>
+            <button className="btn" onClick={onBack}>ステージ選択</button>
+          </div>
+        </div>
+      )}
+
+      {showTutorial && stage.tutorial && (
+        <div className="clear-overlay" onClick={dismissTutorial}>
+          <div className="clear-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 360 }}>
+            <div className="clear-title" style={{ fontSize: 22 }}>{stage.tutorial.title}</div>
+            <div style={{ fontSize: 14, color: '#bbd', lineHeight: 1.7, margin: '16px 0', whiteSpace: 'pre-line', textAlign: 'left' }}>
+              {stage.tutorial.body}
+            </div>
+            <button className="btn primary" onClick={dismissTutorial}>はじめる</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Stage Thumbnail ──────────────────────────────────────────────────────────
+function StageThumbnail({ grid, size = 72 }) {
+  if (!grid || !grid.length) return null;
+  const rows = grid.length;
+  const cols = grid[0].length;
+  const cs   = Math.floor(size / Math.max(rows, cols)); // cell size
+  const gap  = Math.max(1, Math.floor(cs / 10));
+  const W    = cs * cols;
+  const H    = cs * rows;
+  const { powered, byColor } = computePowered(grid);
+  const COLOR = { cyan: '#00ffcc', red: '#ff4455', blue: '#4488ff', yellow: '#ffcc00', green: '#44ff88' };
+  const dirs  = [[0, -1], [1, 0], [0, 1], [-1, 0]]; // N E S W
+
+  return (
+    <svg width={W} height={H} style={{ display: 'block', borderRadius: 5, flexShrink: 0 }}>
+      <rect width={W} height={H} fill="#0d1225" rx={4} />
+      {grid.map((row, r) => row.map((cell, c) => {
+        const pw  = powered[r][c];
+        const x   = c * cs; const y = r * cs;
+        const cx2 = x + cs / 2; const cy2 = y + cs / 2;
+        const bg  = pw ? '#0a1a2a' : '#111827';
+        const wc  = pw ? (COLOR[pw] || COLOR.cyan) : '#223344';
+        const sw  = Math.max(1.5, cs / 6);
+        if (cell.type === 'empty') return (
+          <rect key={`${r}-${c}`} x={x + gap} y={y + gap} width={cs - gap * 2} height={cs - gap * 2} fill="#0d1120" rx={1} />
+        );
+        const conns = getConnections(cell.type, cell.rotation);
+        return (
+          <g key={`${r}-${c}`}>
+            <rect x={x + gap} y={y + gap} width={cs - gap * 2} height={cs - gap * 2} fill={bg} rx={1} />
+            {[...conns].map(d => (
+              <line key={d}
+                x1={cx2} y1={cy2}
+                x2={cx2 + dirs[d][0] * cs / 2} y2={cy2 + dirs[d][1] * cs / 2}
+                stroke={wc} strokeWidth={sw} strokeLinecap="round" />
+            ))}
+            {cell.type === 'source' && (
+              <circle cx={cx2} cy={cy2} r={cs / 4} fill={pw ? (COLOR[pw] || COLOR.cyan) : '#1a4a3a'} />
+            )}
+            {cell.type === 'bulb' && (
+              <circle cx={cx2} cy={cy2} r={cs / 3.2}
+                fill={byColor[cell.color || 'cyan']?.[r]?.[c] ? '#ffee44' : '#1a1a0a'} />
+            )}
+          </g>
+        );
+      }))}
+    </svg>
+  );
+}
+
+// ─── Stage Select ─────────────────────────────────────────────────────────────
+function StageSelect({ onSelect, bestStars, bestMoves, unlockedUpTo, userStages, onCreateStage, onEditStage, onPlayUserStage, onDeleteUserStage, onPlayCommunityStage }) {
+  const allPerfect = STAGES.length > 0 && STAGES.every((_, i) => bestStars[`stage_${i}`] === 3);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [communityStages, setCommunityStages] = useState([]);
+  const [commLoading, setCommLoading]         = useState(true);
+  const [commError, setCommError]             = useState(null);
+  const [commOffset, setCommOffset]           = useState(0);
+  const [hasMore, setHasMore]                 = useState(true);
+  const [likedIds, setLikedIds] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('cf_liked') || '[]'); } catch { return []; }
+  });
+
+  useEffect(() => {
+    fetchCommunityStages(0)
+      .then(data => { setCommunityStages(data); setHasMore(data.length === 10); setCommLoading(false); })
+      .catch(() => { setCommError('読み込み失敗'); setCommLoading(false); });
+  }, []);
+
+  const handleLike = async (s) => {
+    if (likedIds.includes(s.id)) return;
+    const next = [...likedIds, s.id];
+    setLikedIds(next);
+    localStorage.setItem('cf_liked', JSON.stringify(next));
+    setCommunityStages(prev => prev.map(x => x.id === s.id ? { ...x, likes: x.likes + 1 } : x));
+    likeStageById(s.id, s.likes).catch(() => {});
+  };
+
+  const handleLoadMore = async () => {
+    const offset = commOffset + 10;
+    try {
+      const data = await fetchCommunityStages(offset);
+      setCommunityStages(prev => [...prev, ...data]);
+      setCommOffset(offset);
+      setHasMore(data.length === 10);
+    } catch {}
+  };
+  const WAVE_POS = ['50%', '65%', '78%', '65%', '50%', '35%', '22%', '35%'];
+
+  const groups = [
+    { label: 'チュートリアル', range: [0, 3],   color: '#58cc02', shadow: '#3d9900', icon: '⚡', desc: '基本を学ぼう' },
+    { label: '基本パズル',     range: [3, 8],   color: '#1cb0f6', shadow: '#0a85c0', icon: '🔌', desc: 'つなげて光らせろ' },
+    { label: '新機能',         range: [8, 10],  color: '#ce82ff', shadow: '#9a50cc', icon: '✨', desc: '新しいピースを使おう' },
+    { label: '中級パズル',     range: [10, 15], color: '#00cd9c', shadow: '#009e75', icon: '💡', desc: '複雑な回路に挑戦' },
+    { label: '上級パズル',     range: [15, 22], color: '#ff9600', shadow: '#c27200', icon: '⚙️', desc: '難易度アップ' },
+    { label: 'エキスパート',   range: [22, 25], color: '#ff4b4b', shadow: '#c43030', icon: '🎯', desc: 'マスターへの道' },
+    { label: '新ギミック',     range: [25, 28], color: '#ff86d0', shadow: '#cc52aa', icon: '🎛️', desc: 'ギミックを攻略' },
+    { label: 'ダイオード',     range: [28, 31], color: '#ffc800', shadow: '#c09600', icon: '💎', desc: '一方通行を攻略' },
+    { label: '複合パズル',     range: [31, 36], color: '#4b8fff', shadow: '#2a5ecc', icon: '🔗', desc: '組み合わせて解け' },
+    { label: '最終試練',       range: [36, 41], color: '#e03131', shadow: '#a61e1e', icon: '🏆', desc: '最後の難関に挑め' },
+    { label: '拡張パズル',     range: [41, 46], color: '#7bd5ff', shadow: '#3aa3d4', icon: '🌊', desc: '新たな旅の始まり' },
+    { label: '迷宮',           range: [46, 51], color: '#a585e0', shadow: '#7858b8', icon: '🌀', desc: '迷い込んだ回路' },
+    { label: 'クロス回廊',     range: [51, 56], color: '#3ed598', shadow: '#1ea876', icon: '✨', desc: '交差の難題' },
+    { label: '分岐の極み',     range: [56, 61], color: '#ffb648', shadow: '#cc8b1a', icon: '🌳', desc: '枝分かれの挑戦' },
+    { label: '熟練の道',       range: [61, 66], color: '#ff7eb3', shadow: '#c44e85', icon: '🔮', desc: 'マスターの境地' },
+    { label: '究極',           range: [66, 72], color: '#d63838', shadow: '#9a1c1c', icon: '👑', desc: '伝説への到達' },
+    { label: '電気工学',       range: [72, 77], color: '#a3e635', shadow: '#5e8a1f', icon: '⚛️', desc: '電圧を操れ' },
+    { label: '歯車',           range: [77, 80], color: '#d99654', shadow: '#a06624', icon: '⚙️', desc: '連鎖を読む' },
+    { label: 'ヒューズ',       range: [80, 82], color: '#ff7043', shadow: '#c43e1a', icon: '🧨', desc: '焼き切れに注意' },
+    { label: 'テレポーター',   range: [82, 84], color: '#9d6bff', shadow: '#6a3ac4', icon: '🌀', desc: '空間を超えろ' },
+    { label: '反転回路',       range: [84, 85], color: '#26c6da', shadow: '#0e8a9a', icon: '🔀', desc: '逆転の発想' },
+  ];
+
+  // First unlocked-but-unplayed stage gets the pulsing ring
+  let featuredIdx = -1;
+  for (let i = 0; i <= unlockedUpTo; i++) {
+    if ((bestStars[`stage_${i}`] || 0) === 0) { featuredIdx = i; break; }
+  }
+
+  return (
+    <div className="screen stage-select">
+      <h1>Circuit Flow</h1>
+      <div className="tagline">繋げて、光らせろ。</div>
+
+      {allPerfect && (
+        <div className="all-clear-banner">
+          <div className="acl-trophy">🏆</div>
+          <div className="acl-title">全ステージ ★★★ 達成！</div>
+          <div className="acl-sub">全 {STAGES.length} ステージをパーフェクトクリア</div>
+        </div>
+      )}
+
+      {groups.map(g => {
+        const stagesInGroup = STAGES.slice(g.range[0], g.range[1]);
+        const doneCount = stagesInGroup.filter((_, i) => (bestStars[`stage_${g.range[0] + i}`] || 0) > 0).length;
+        return (
+          <div key={g.label} className="duo-section">
+            <div className="duo-banner" style={{ background: g.color, boxShadow: `0 5px 0 ${g.shadow}` }}>
+              <div className="duo-banner-icon">{g.icon}</div>
+              <div>
+                <div className="duo-banner-title">{g.label}</div>
+                <div className="duo-banner-sub">{g.desc} · {doneCount}/{stagesInGroup.length} クリア</div>
+              </div>
+            </div>
+            <div className="duo-nodes">
+              {stagesInGroup.map((s, i) => {
+                const idx = g.range[0] + i;
+                const locked = idx > unlockedUpTo;
+                const key = `stage_${idx}`;
+                const stars = bestStars[key] || 0;
+                const isFeatured = idx === featuredIdx;
+                const pos = WAVE_POS[i % WAVE_POS.length];
+                const nodeLabel = locked ? '🔒' : stars === 3 ? '✓' : idx + 1;
+                return (
+                  <div key={idx} className="duo-node-wrap" style={{ '--pos': pos, '--nd-bg': locked ? '#2a2d3a' : g.color, '--nd-sh': locked ? '#1a1c24' : g.shadow }}>
+                    <div
+                      className={`duo-node${locked ? ' locked' : ''}${isFeatured ? ' featured' : ''}`}
+                      onClick={() => !locked && onSelect(idx)}
+                    >
+                      {nodeLabel}
+                    </div>
+                    <div className="duo-node-stars">
+                      {!locked && [1,2,3].map(si => (
+                        <span key={si} style={{ color: si <= stars ? '#ffd700' : '#2a2a3a' }}>★</span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* User-created stages */}
+      <div style={{ width: '100%', marginTop: 8 }}>
+        <div className="section-label">マイステージ</div>
+        {userStages.length === 0 && (
+          <div style={{ textAlign: 'center', color: '#334', fontSize: 12, padding: '10px 0' }}>
+            まだステージがありません
+          </div>
+        )}
+        {userStages.map(s => {
+          const st = bestStars[s.id] || 0;
+          return (
+            <div key={s.id} className="user-stage-item" onClick={() => onPlayUserStage(s)}>
+              <div className="usi-name">{s.name}</div>
+              <div className="usi-stars">
+                {[1,2,3].map(si => <span key={si} style={{ color: si <= st ? '#ffd700' : '#223' }}>★</span>)}
+              </div>
+              {bestMoves[s.id] != null && <div className="usi-best">{bestMoves[s.id]}手</div>}
+              <div className="usi-actions">
+                <span onClick={e => { e.stopPropagation(); onEditStage(s); }}
+                  style={{ color: '#5a8aaa', cursor: 'pointer' }}>編集</span>
+                {deleteConfirm === s.id
+                  ? <>
+                      <span onClick={e => { e.stopPropagation(); onDeleteUserStage(s.id); setDeleteConfirm(null); }}
+                        style={{ color: '#ff5566', cursor: 'pointer' }}>確認</span>
+                      <span onClick={e => { e.stopPropagation(); setDeleteConfirm(null); }}
+                        style={{ color: '#556', cursor: 'pointer' }}>×</span>
+                    </>
+                  : <span onClick={e => { e.stopPropagation(); setDeleteConfirm(s.id); }}
+                      style={{ color: '#8a4a4a', cursor: 'pointer' }}>削除</span>
+                }
+              </div>
+            </div>
+          );
+        })}
+        <button className="create-btn" onClick={onCreateStage}>＋ 新しいステージを作る</button>
+      </div>
+
+      {/* Community stages */}
+      <div style={{ width: '100%', marginTop: 8 }}>
+        <div className="section-label">みんなのステージ</div>
+        {commLoading && <div style={{ fontSize: 12, color: '#446', textAlign: 'center', padding: '12px 0' }}>読み込み中...</div>}
+        {commError  && <div style={{ fontSize: 12, color: '#aa4444', textAlign: 'center', padding: '12px 0' }}>{commError}</div>}
+        {communityStages.map(s => (
+          <div key={s.id} className="community-stage-item" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <StageThumbnail grid={s.grid} size={72} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="csi-header">
+                <div className="csi-name">{s.name}</div>
+                <div className="csi-author">{s.author}</div>
+              </div>
+              <div className="csi-footer">
+                <span className="csi-meta">★★★: {s.min_moves}手</span>
+                <span className="csi-meta">▶ {s.play_count}</span>
+                <span className={`csi-like ${likedIds.includes(s.id) ? 'liked' : ''}`} onClick={() => handleLike(s)}>
+                  {likedIds.includes(s.id) ? '♥' : '♡'} {s.likes}
+                </span>
+                <span className="csi-play" onClick={() => onPlayCommunityStage(s)}>▶ プレイ</span>
+              </div>
+            </div>
+          </div>
+        ))}
+        {!commLoading && communityStages.length === 0 && !commError && (
+          <div style={{ textAlign: 'center', color: '#334', fontSize: 12, padding: '10px 0' }}>
+            まだ公開ステージがありません
+          </div>
+        )}
+        {hasMore && !commLoading && (
+          <button className="create-btn" onClick={handleLoadMore}>もっと見る</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Stage Editor ─────────────────────────────────────────────────────────────
+const PIECE_PALETTE = [
+  { type: 'empty',    label: '消す' },
+  { type: 'source',   label: '電源',   hasColor: true, hasPower: true },
+  { type: 'bulb',     label: '電球',   hasColor: true },
+  { type: 'straight', label: '直線' },
+  { type: 'l',        label: '角' },
+  { type: 't',        label: 'T字' },
+  { type: 'cross',    label: '十字' },
+  { type: 'bridge',   label: '橋' },
+  { type: 'oneway',   label: '一方向' },
+  { type: 'switch',   label: 'SW',    hasLink: true },
+  { type: 'gate',     label: 'ゲート', hasLink: true },
+  { type: 'igate',    label: '反転G', hasLink: true },
+  { type: 'resistor', label: '抵抗' },
+  { type: 'amp',      label: '増幅' },
+  { type: 'resistorL',label: '抵抗角' },
+  { type: 'ampL',     label: '増幅角' },
+  { type: 'gear',     label: '歯車' },
+  { type: 'fuse',     label: 'ヒューズ', hasLimit: true },
+  { type: 'portal',   label: 'ワープ', hasLink: true },
+];
+const LINK_IDS = ['A', 'B', 'C', 'D'];
+
+function makeEmptyGrid(r, c) {
+  return Array.from({ length: r }, () => Array.from({ length: c }, () => E()));
+}
+
+function encodeStageToHash(stage) {
+  return 'stage=' + encodeURIComponent(JSON.stringify({ name: stage.name, grid: stage.grid, minMoves: stage.minMoves }));
+}
+function decodeStageFromHash(hash) {
+  if (!hash.startsWith('stage=')) return null;
+  try {
+    const data = JSON.parse(decodeURIComponent(hash.slice(6)));
+    if (data && data.grid && data.name) return data;
+  } catch {}
+  return null;
+}
+
+// ─── Supabase ─────────────────────────────────────────────────────────────────
+const SB_URL = 'https://dddncpdzluyjwjfkxtnh.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRkZG5jcGR6bHV5andqZmt4dG5oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgzODI5ODEsImV4cCI6MjA5Mzk1ODk4MX0.-9W8FiFPrwKzlqHeiMjDepDuFd00OWFY8w15q5QGjMA';
+const SB_HEADERS = { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}`, 'Content-Type': 'application/json' };
+
+async function sbGet(path) {
+  const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: SB_HEADERS });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+async function sbPost(path, body) {
+  const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method: 'POST', headers: { ...SB_HEADERS, 'Prefer': 'return=representation' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+async function sbPatch(path, body) {
+  const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method: 'PATCH', headers: SB_HEADERS, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.status === 204 ? null : r.json();
+}
+
+const fetchCommunityStages = (offset = 0) =>
+  sbGet(`stages?order=created_at.desc&limit=10&offset=${offset}&select=id,name,author,min_moves,likes,play_count,created_at,grid`);
+
+const publishStageToCloud = (stage, author) =>
+  sbPost('stages', { name: stage.name, grid: stage.grid, min_moves: stage.minMoves, author: author || '匿名' });
+
+const likeStageById    = (id, cur) => sbPatch(`stages?id=eq.${id}`, { likes: cur + 1 });
+const incPlayCount     = (id, cur) => sbPatch(`stages?id=eq.${id}`, { play_count: cur + 1 });
+
+// ─── Audio ────────────────────────────────────────────────────────────────────
+let _audioCtx = null;
+function getAudioCtx() {
+  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+function playRotate() {
+  try {
+    const ctx = getAudioCtx(), t = ctx.currentTime;
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(700, t);
+    osc.frequency.exponentialRampToValueAtTime(320, t + 0.055);
+    gain.gain.setValueAtTime(0.13, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.065);
+    osc.start(t); osc.stop(t + 0.07);
+  } catch {}
+}
+function playBulbLit() {
+  try {
+    const ctx = getAudioCtx(), t = ctx.currentTime;
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(660, t);
+    osc.frequency.exponentialRampToValueAtTime(990, t + 0.09);
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.18, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    osc.start(t); osc.stop(t + 0.32);
+  } catch {}
+}
+function playClear() {
+  try {
+    const ctx = getAudioCtx();
+    [523, 659, 784, 1047].forEach((freq, i) => {
+      const osc = ctx.createOscillator(), gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const t = ctx.currentTime + i * 0.11;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.22, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+      osc.start(t); osc.stop(t + 0.6);
+    });
+  } catch {}
+}
+
+function StageEditor({ initialStage, onBack, onTestPlay, onSave }) {
+  const [name, setName]           = useState(initialStage?.name || '無題のステージ');
+  const [rows, setRows]           = useState(initialStage?.grid.length || 4);
+  const [cols, setCols]           = useState(initialStage?.grid[0]?.length || 4);
+  const [grid, setGrid]           = useState(() =>
+    initialStage ? initialStage.grid.map(r => r.map(c => ({ ...c }))) : makeEmptyGrid(4, 4)
+  );
+  const [minMoves, setMinMoves]   = useState(initialStage?.minMoves || 5);
+  const [selType, setSelType]     = useState('straight');
+  const [selRotation, setSelRot]  = useState(0);
+  const [selColor, setSelColor]   = useState('cyan');
+  const [selLinkId, setSelLink]   = useState('A');
+  const [selLimit, setSelLimit]   = useState(2);
+  const [selPower, setSelPower]   = useState(9);
+  const [selLocked, setSelLocked] = useState(false);
+  const [errors, setErrors]       = useState([]);
+  const [copied, setCopied]       = useState(false);
+  const [showPublish, setShowPublish] = useState(false);
+  const [pubAuthor, setPubAuthor]     = useState('');
+  const [pubState, setPubState]       = useState('idle'); // idle|loading|done|error
+
+  const { powered, byColor, gateOpen, levels } = computePowered(grid);
+  const previewSolved = isSolved(grid, byColor);
+  const editorShowLevels = grid.some(row => row.some(c =>
+    c.type === 'resistor' || c.type === 'amp' || c.type === 'resistorL' || c.type === 'ampL' || c.type === 'fuse'));
+
+  const placeCell = (r, c) => {
+    setGrid(prev => {
+      const next = prev.map(row => row.map(cell => ({ ...cell })));
+      if (selType === 'empty') {
+        next[r][c] = E();
+      } else {
+        const opts = {};
+        if (['source', 'bulb'].includes(selType) && selColor !== 'cyan') opts.color = selColor;
+        if (['switch', 'gate', 'igate', 'portal'].includes(selType)) opts.linkId = selLinkId;
+        if (selType === 'fuse') opts.limit = selLimit;
+        if (selType === 'source' && selPower !== 9) opts.initialPower = selPower;
+        next[r][c] = makeCell(selType, selRotation, selLocked, opts);
+      }
+      return next;
+    });
+  };
+
+  const rotateCell = (r, c, e) => {
+    e.preventDefault();
+    setGrid(prev => {
+      const next = prev.map(row => row.map(cell => ({ ...cell })));
+      if (next[r][c].type !== 'empty') {
+        next[r][c] = { ...next[r][c], rotation: (next[r][c].rotation + 1) % 4 };
+      }
+      return next;
+    });
+  };
+
+  const resizeGrid = (dr, dc) => {
+    const nr = Math.max(2, Math.min(7, rows + dr));
+    const nc = Math.max(2, Math.min(7, cols + dc));
+    setRows(nr); setCols(nc);
+    setGrid(prev =>
+      Array.from({ length: nr }, (_, r) =>
+        Array.from({ length: nc }, (_, c) => prev[r]?.[c] ? { ...prev[r][c] } : E())
+      )
+    );
+  };
+
+  const validate = () => {
+    const errs = [];
+    let src = 0, bulb = 0;
+    for (const row of grid) for (const cell of row) {
+      if (cell.type === 'source') src++;
+      if (cell.type === 'bulb')   bulb++;
+    }
+    if (src  === 0) errs.push('電源（⚡）を1つ以上置いてください');
+    if (bulb === 0) errs.push('電球（💡）を1つ以上置いてください');
+    if (previewSolved) errs.push('初期状態でクリアされています。ピースを回転させてください');
+    return errs;
+  };
+
+  const handleSave = () => {
+    const errs = validate();
+    if (errs.length) { setErrors(errs); return; }
+    setErrors([]);
+    onSave({ name, grid, minMoves: Math.max(1, Number(minMoves)) });
+  };
+
+  const handleTest = () => {
+    const errs = validate();
+    if (errs.length) { setErrors(errs); return; }
+    setErrors([]);
+    onTestPlay({ name, grid, minMoves: Math.max(1, Number(minMoves)) });
+  };
+
+  const handlePublish = async () => {
+    const errs = validate();
+    if (errs.length) { setErrors(errs); return; }
+    setErrors([]);
+    setPubState('loading');
+    try {
+      await publishStageToCloud({ name, grid, minMoves: Math.max(1, Number(minMoves)) }, pubAuthor);
+      setPubState('done');
+      setTimeout(() => { setPubState('idle'); setShowPublish(false); }, 2200);
+    } catch {
+      setPubState('error');
+      setTimeout(() => setPubState('idle'), 3000);
+    }
+  };
+
+  const handleCopyUrl = () => {
+    const errs = validate();
+    if (errs.length) { setErrors(errs); return; }
+    setErrors([]);
+    const stage = { name, grid, minMoves: Math.max(1, Number(minMoves)) };
+    window.location.hash = encodeStageToHash(stage);
+    const url = window.location.href;
+    navigator.clipboard.writeText(url)
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2500); })
+      .catch(() => { prompt('このURLをコピーしてシェアしてください:', url); });
+  };
+
+  const vw = useViewportWidth();
+  const idealEditorCell = cols <= 3 ? 80 : cols <= 4 ? 70 : cols <= 5 ? 60 : cols <= 6 ? 52 : 45;
+  const editorCellSize = fitCellSize(vw, cols, idealEditorCell, 32);
+  const selPiece = PIECE_PALETTE.find(p => p.type === selType);
+
+  return (
+    <div className="screen">
+      <div className="header">
+        <div>
+          <div className="stage-label">ステージエディタ</div>
+          <input
+            className="editor-name-input"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="ステージ名"
+          />
+        </div>
+        <button className="btn" onClick={onBack}
+          style={{ width: 'auto', padding: '8px 14px', marginBottom: 0 }}>← 戻る</button>
+      </div>
+
+      {/* Piece palette */}
+      <div className="palette">
+        {PIECE_PALETTE.map(p => (
+          <div
+            key={p.type}
+            className={`palette-item ${selType === p.type ? 'selected' : ''}`}
+            onClick={() => setSelType(p.type)}
+          >
+            {p.type === 'empty'
+              ? <span style={{ fontSize: 18, lineHeight: 1 }}>🗑</span>
+              : <PieceSVG
+                  type={p.type} rotation={selType === p.type ? selRotation : 0}
+                  isPowered={false} isBulbLit={false} isLocked={false} size={34}
+                  powerColor="cyan"
+                  cellColor={selType === p.type && p.hasColor ? selColor : 'cyan'}
+                  isOpen={p.type !== 'igate'}
+                  linkLabel={p.hasLimit ? (selType === p.type ? selLimit : 2)
+                           : (p.hasLink ? (selType === p.type ? selLinkId : 'A') : undefined)}
+                />
+            }
+            <span style={{ fontSize: 8, marginTop: 2, lineHeight: 1, color: selType === p.type ? '#7df' : '#556' }}>
+              {p.label}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Sub-controls: rotation, color, linkId, locked */}
+      <div className="sub-palette">
+        {selType !== 'empty' && (
+          <>
+            <button className="rot-btn" onClick={() => setSelRot(r => (r + 3) % 4)}>↺</button>
+            <span style={{ fontSize: 12, color: '#778', minWidth: 36, textAlign: 'center' }}>
+              {['↑N', '→E', '↓S', '←W'][selRotation]}
+            </span>
+            <button className="rot-btn" onClick={() => setSelRot(r => (r + 1) % 4)}>↻</button>
+          </>
+        )}
+        {selPiece?.hasColor && (
+          <>
+            <span style={{ fontSize: 11, color: '#556', marginLeft: 4 }}>色:</span>
+            {Object.entries(COLOR_HEX).filter(([k]) => k !== 'mixed').map(([key, hex]) => (
+              <div key={key} className={`color-dot ${selColor === key ? 'selected' : ''}`}
+                style={{ background: hex }} onClick={() => setSelColor(key)} />
+            ))}
+          </>
+        )}
+        {selPiece?.hasLink && (
+          <>
+            <span style={{ fontSize: 11, color: '#556', marginLeft: 4 }}>リンク:</span>
+            {LINK_IDS.map(id => (
+              <button key={id} className="rot-btn"
+                style={{ padding: '3px 8px', fontSize: 13, background: selLinkId === id ? '#2a5aaa' : '#1a2535' }}
+                onClick={() => setSelLink(id)}>{id}</button>
+            ))}
+          </>
+        )}
+        {selPiece?.hasLimit && (
+          <>
+            <span style={{ fontSize: 11, color: '#556', marginLeft: 4 }}>上限:</span>
+            {[1, 2, 3, 4].map(n => (
+              <button key={n} className="rot-btn"
+                style={{ padding: '3px 8px', fontSize: 13, background: selLimit === n ? '#2a5aaa' : '#1a2535' }}
+                onClick={() => setSelLimit(n)}>≤{n}</button>
+            ))}
+          </>
+        )}
+        {selPiece?.hasPower && (
+          <>
+            <span style={{ fontSize: 11, color: '#556', marginLeft: 4 }}>電力:</span>
+            {[1, 2, 3, 5, 9].map(n => (
+              <button key={n} className="rot-btn"
+                style={{ padding: '3px 8px', fontSize: 13, background: selPower === n ? '#2a5aaa' : '#1a2535' }}
+                onClick={() => setSelPower(n)}>{n}</button>
+            ))}
+          </>
+        )}
+        {selType !== 'empty' && (
+          <label style={{ fontSize: 11, color: selLocked ? '#7df' : '#556', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, marginLeft: 4 }}>
+            <input type="checkbox" checked={selLocked} onChange={e => setSelLocked(e.target.checked)} style={{ margin: 0 }}/>
+            固定
+          </label>
+        )}
+      </div>
+
+      {/* Live circuit preview status */}
+      {previewSolved && (
+        <div style={{ fontSize: 12, color: '#ffee44', marginBottom: 6, textAlign: 'center' }}>
+          ⚡ 回路が繋がっています（保存前にピースを回転させてください）
+        </div>
+      )}
+
+      {/* Editor grid */}
+      <div className="grid-wrapper">
+        <div className="grid" style={{ gridTemplateColumns: `repeat(${cols}, ${editorCellSize}px)`, gap: 4 }}>
+          {grid.map((row, r) => row.map((cell, c) => {
+            const pw = powered[r][c];
+            const isLit = previewSolved && cell.type === 'bulb' && !!byColor[cell.color || 'cyan']?.[r][c];
+            return (
+              <div key={`${r}-${c}`}
+                className={`cell ${pw ? 'powered' : ''} ${cell.locked ? 'locked' : ''}`}
+                style={{ width: editorCellSize, height: editorCellSize }}
+                onClick={() => placeCell(r, c)}
+                onContextMenu={(e) => rotateCell(r, c, e)}
+              >
+                <PieceSVG
+                  type={cell.type} rotation={cell.rotation}
+                  isPowered={!!pw} isBulbLit={isLit} isLocked={cell.locked}
+                  size={editorCellSize} powerColor={pw} cellColor={cell.color}
+                  isOpen={cell.type === 'gate' ? !!gateOpen[cell.linkId]
+                        : cell.type === 'igate' ? !gateOpen[cell.linkId] : false}
+                  linkLabel={cell.type === 'fuse' ? (cell.limit ?? 2) : cell.linkId}
+                  level={editorShowLevels ? levels[r][c] : 0}
+                />
+              </div>
+            );
+          }))}
+        </div>
+      </div>
+
+      {/* Grid size controls */}
+      <div className="size-control">
+        <span style={{ fontSize: 11, color: '#556' }}>グリッド:</span>
+        <button className="size-btn" onClick={() => resizeGrid(-1, 0)}>行−</button>
+        <span style={{ fontSize: 13, color: '#adf', minWidth: 48, textAlign: 'center' }}>{rows}×{cols}</span>
+        <button className="size-btn" onClick={() => resizeGrid(1, 0)}>行＋</button>
+        <button className="size-btn" onClick={() => resizeGrid(0, -1)}>列−</button>
+        <button className="size-btn" onClick={() => resizeGrid(0, 1)}>列＋</button>
+      </div>
+
+      {/* minMoves setting */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 12, color: '#556' }}>★★★ の基準:</span>
+        <input type="number" min={1} max={99} value={minMoves}
+          onChange={e => setMinMoves(e.target.value)}
+          style={{ width: 52, background: '#111827', border: '1px solid #2a3545', color: '#adf', borderRadius: 6, padding: '4px 8px', fontSize: 14, textAlign: 'center' }}
+        />
+        <span style={{ fontSize: 11, color: '#445' }}>手以内</span>
+      </div>
+
+      {/* Validation errors */}
+      {errors.map((err, i) => <div key={i} className="editor-error">⚠ {err}</div>)}
+
+      {/* Action buttons */}
+      <div style={{ display: 'flex', gap: 8, width: '100%' }}>
+        <button className="btn" onClick={handleTest} style={{ flex: 1 }}>▶ テスト</button>
+        <button className="btn primary" onClick={handleSave} style={{ flex: 1 }}>💾 保存</button>
+        <button className="btn" onClick={handleCopyUrl}
+          style={{ flex: 1, background: copied ? '#0a2a1a' : undefined, borderColor: copied ? '#2aaa66' : undefined, color: copied ? '#4dffaa' : undefined }}>
+          {copied ? '✓ コピー済' : '🔗 シェア'}
+        </button>
+      </div>
+      {/* Publish to cloud */}
+      {!showPublish ? (
+        <button className="btn" onClick={() => setShowPublish(true)}
+          style={{ width: '100%', marginTop: 4, borderColor: '#1a3a1a', color: '#4a9a6a' }}>
+          🌐 みんなに公開する
+        </button>
+      ) : (
+        <div className="publish-panel">
+          <div style={{ fontSize: 12, color: '#4a8a5a', marginBottom: 6 }}>作者名（省略で匿名）</div>
+          <input
+            className="editor-name-input"
+            value={pubAuthor}
+            onChange={e => setPubAuthor(e.target.value)}
+            placeholder="匿名"
+            style={{ width: '100%', marginBottom: 10 }}
+          />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn" onClick={() => { setShowPublish(false); setPubState('idle'); }} style={{ flex: 1 }}>
+              キャンセル
+            </button>
+            <button className="btn primary" onClick={handlePublish} disabled={pubState === 'loading'}
+              style={{ flex: 2, background: pubState === 'done' ? '#0a2a1a' : pubState === 'error' ? '#2a0a0a' : undefined,
+                       borderColor: pubState === 'done' ? '#2aaa66' : pubState === 'error' ? '#aa2222' : undefined }}>
+              {pubState === 'loading' ? '公開中...' : pubState === 'done' ? '✓ 公開しました！' : pubState === 'error' ? '⚠ エラー（再試行）' : '🌐 公開する'}
+            </button>
+          </div>
+        </div>
+      )}
+      <div style={{ fontSize: 10, color: '#334', marginTop: 8, textAlign: 'center', lineHeight: 1.6 }}>
+        クリック: 配置 ／ 右クリック: 回転
+      </div>
+    </div>
+  );
+}
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+function App() {
+  const [screen, setScreen]               = useState('select');
+  const [currentStage, setCurrentStage]   = useState(0);
+  const [customPlayStage, setCustomPlay]  = useState(null); // { stage, stageKey, backScreen }
+  const [editingStage, setEditingStage]   = useState(null); // user stage to edit, or null for new
+  const [editorKey, setEditorKey]         = useState(0);    // force remount on return from test
+  const [sharedStage, setSharedStage]     = useState(null); // stage decoded from URL hash
+
+  const [bestStars, setBestStars] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('cf_stars') || '{}'); } catch { return {}; }
+  });
+  const [bestMoves, setBestMoves] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('cf_best_moves') || '{}'); } catch { return {}; }
+  });
+  const [userStages, setUserStages] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('cf_user_stages') || '[]'); } catch { return []; }
+  });
+
+  // Detect shared stage from URL hash on first load
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    const decoded = decodeStageFromHash(hash);
+    if (decoded) {
+      setSharedStage(decoded);
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  }, []);
+
+  const unlockedUpTo = (() => {
+    let u = 0;
+    for (let i = 0; i < STAGES.length; i++) {
+      if (bestStars[`stage_${i}`]) u = Math.min(i + 1, STAGES.length - 1);
+    }
+    return u;
+  })();
+
+  useEffect(() => {
+    try { localStorage.setItem('cf_stars', JSON.stringify(bestStars)); } catch {}
+  }, [bestStars]);
+  useEffect(() => {
+    try { localStorage.setItem('cf_best_moves', JSON.stringify(bestMoves)); } catch {}
+  }, [bestMoves]);
+  useEffect(() => {
+    try { localStorage.setItem('cf_user_stages', JSON.stringify(userStages)); } catch {}
+  }, [userStages]);
+
+  const handleSaveUserStage = ({ name, grid, minMoves }) => {
+    if (editingStage?.id && editingStage.id !== 'new') {
+      setUserStages(prev => prev.map(s => s.id === editingStage.id ? { ...s, name, grid, minMoves } : s));
+    } else {
+      setUserStages(prev => [...prev, { id: `user_${Date.now()}`, name, grid, minMoves, isUserCreated: true }]);
+    }
+    setEditingStage(null);
+    setScreen('select');
+  };
+
+  const handleDeleteUserStage = (id) => {
+    setUserStages(prev => prev.filter(s => s.id !== id));
+  };
+
+  const renderScreen = () => {
+    if (screen === 'editor') {
+      return (
+        <StageEditor
+          key={editorKey}
+          initialStage={editingStage}
+          onBack={() => { setEditingStage(null); setScreen('select'); }}
+          onTestPlay={(tempStage) => {
+            setEditingStage(prev => prev ? { ...prev, ...tempStage } : tempStage);
+            setCustomPlay({ stage: tempStage, stageKey: null, backScreen: 'editor' });
+            setScreen('game');
+          }}
+          onSave={handleSaveUserStage}
+        />
+      );
+    }
+    if (screen === 'game') {
+      if (customPlayStage) {
+        return (
+          <GameScreen
+            key={`custom-${customPlayStage.stageKey || 'test'}`}
+            customStage={customPlayStage.stage}
+            stageKey={customPlayStage.stageKey}
+            onBack={() => {
+              const bs = customPlayStage.backScreen || 'select';
+              setCustomPlay(null);
+              if (bs === 'editor') setEditorKey(k => k + 1);
+              setScreen(bs);
+            }}
+            onNext={null}
+            bestStars={bestStars} setBestStars={setBestStars}
+            bestMoves={bestMoves} setBestMoves={setBestMoves}
+          />
+        );
+      }
+      return (
+        <GameScreen
+          key={currentStage}
+          stageIdx={currentStage}
+          onBack={() => setScreen('select')}
+          onNext={() => {
+            if (currentStage + 1 < STAGES.length) {
+              setCurrentStage(currentStage + 1);
+            } else {
+              setScreen('select');
+            }
+          }}
+          bestStars={bestStars} setBestStars={setBestStars}
+          bestMoves={bestMoves} setBestMoves={setBestMoves}
+        />
+      );
+    }
+    return (
+      <StageSelect
+        onSelect={(idx) => { setCurrentStage(idx); setScreen('game'); }}
+        bestStars={bestStars}
+        bestMoves={bestMoves}
+        unlockedUpTo={unlockedUpTo}
+        userStages={userStages}
+        onCreateStage={() => { setEditingStage(null); setEditorKey(k => k + 1); setScreen('editor'); }}
+        onEditStage={(s) => { setEditingStage(s); setEditorKey(k => k + 1); setScreen('editor'); }}
+        onPlayUserStage={(s) => { setCustomPlay({ stage: s, stageKey: s.id, backScreen: 'select' }); setScreen('game'); }}
+        onDeleteUserStage={handleDeleteUserStage}
+        onPlayCommunityStage={(s) => {
+          incPlayCount(s.id, s.play_count).catch(() => {});
+          const stage = { name: s.name, grid: s.grid, minMoves: s.min_moves };
+          setCustomPlay({ stage, stageKey: `community_${s.id}`, backScreen: 'select' });
+          setScreen('game');
+        }}
+      />
+    );
+  };
+
+  return (
+    <>
+      {sharedStage && (
+        <div className="import-overlay">
+          <div className="import-card">
+            <div className="import-label">シェアされたステージ</div>
+            <div className="import-title">{sharedStage.name}</div>
+            <div className="import-meta">
+              {sharedStage.grid.length}×{sharedStage.grid[0]?.length} ／ ★★★基準: {sharedStage.minMoves}手
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button className="btn primary" onClick={() => {
+                setCustomPlay({ stage: sharedStage, stageKey: null, backScreen: 'select' });
+                setSharedStage(null);
+                setScreen('game');
+              }}>▶ プレイする</button>
+              <button className="btn" onClick={() => {
+                setUserStages(prev => [...prev, { id: `user_${Date.now()}`, ...sharedStage, isUserCreated: true }]);
+                setSharedStage(null);
+              }}>💾 マイステージに保存</button>
+              <button className="btn" onClick={() => setSharedStage(null)}
+                style={{ background: 'transparent', border: '1px solid #223', color: '#556' }}>
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {renderScreen()}
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

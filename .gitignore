@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.claude/
+
+# scratch/dev files
+calc_min_moves.js
+calc_rest.js
+circuit_bg.png
+game_styles.css
+index_new.html
+solve_failing.js
+solver.js
+solver2.js
+solver2_temp.js
+solver3.js
+solver3_temp.js
+solver4.js
+solver_temp.js
+verify_igate.js
+verify_stage8.js
