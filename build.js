@@ -72,11 +72,20 @@ async function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
   fs.writeFileSync(OUT, out);
 
+  // 8. Copy PWA assets (manifest, service worker, icon)
+  for (const file of ['manifest.json', 'sw.js', 'icon.svg']) {
+    const src = path.join(ROOT, file);
+    if (fs.existsSync(src)) {
+      fs.copyFileSync(src, path.join(OUT_DIR, file));
+    }
+  }
+
   const kb = n => (n / 1024).toFixed(1) + ' KB';
   console.log('Build OK -> dist/index.html');
   console.log('  source html : ' + kb(html.length));
   console.log('  app (jsx->min): ' + kb(jsx.length) + ' -> ' + kb(appMin.length));
   console.log('  output html : ' + kb(out.length) + ' (self-contained, no CDN, no Babel)');
+  console.log('  PWA assets   : manifest.json, sw.js, icon.svg copied');
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

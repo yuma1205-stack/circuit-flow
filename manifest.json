@@ -1,0 +1,26 @@
+{
+  "name": "Circuit Flow",
+  "short_name": "Circuit",
+  "description": "Connect electricity through 130+ circuit puzzles. Rotate pieces, defeat logic challenges, and master color flows.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0a0e1a",
+  "theme_color": "#7ddfff",
+  "orientation": "portrait-primary",
+  "lang": "ja",
+  "categories": ["games", "puzzle"],
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

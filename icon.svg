@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="0.5" cy="0.35" r="0.7">
+      <stop offset="0%" stop-color="#1a2860"/>
+      <stop offset="60%" stop-color="#0a0e1a"/>
+      <stop offset="100%" stop-color="#000"/>
+    </radialGradient>
+    <linearGradient id="wire" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#c4ecff"/>
+      <stop offset="100%" stop-color="#3a8fcf"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffe28a"/>
+      <stop offset="100%" stop-color="#c89a1a"/>
+    </linearGradient>
+    <radialGradient id="bulbGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#fff5d0"/>
+      <stop offset="60%" stop-color="#ffd166"/>
+      <stop offset="100%" stop-color="#c89a1a"/>
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- Background rounded square -->
+  <rect width="512" height="512" rx="100" fill="url(#bg)"/>
+  <!-- Subtle circuit grid background -->
+  <g opacity="0.08" stroke="#7ddfff" stroke-width="1" fill="none">
+    <path d="M64 128 H448 M64 192 H448 M64 256 H448 M64 320 H448 M64 384 H448"/>
+    <path d="M128 64 V448 M192 64 V448 M320 64 V448 M384 64 V448"/>
+  </g>
+  <!-- Main circuit path (L-shape from source to bulb) -->
+  <g stroke="url(#wire)" stroke-width="22" stroke-linecap="round" fill="none" filter="url(#glow)">
+    <path d="M120 360 L256 360 L256 200"/>
+  </g>
+  <!-- Bright inner line -->
+  <g stroke="#cce8ff" stroke-width="6" stroke-linecap="round" fill="none">
+    <path d="M120 360 L256 360 L256 200"/>
+  </g>
+  <!-- Source (lightning bolt) at bottom-left -->
+  <g transform="translate(120 360)">
+    <circle r="42" fill="url(#bg)" stroke="url(#gold)" stroke-width="4"/>
+    <path d="M-6 -22 L-14 4 L-2 4 L-8 22 L14 -6 L2 -6 L8 -22 Z" fill="url(#gold)" stroke="#8a6010" stroke-width="1.5" stroke-linejoin="round"/>
+  </g>
+  <!-- Bulb at top -->
+  <g transform="translate(256 160)">
+    <circle r="44" fill="url(#bulbGlow)" filter="url(#glow)"/>
+    <circle r="44" fill="url(#bulbGlow)" stroke="#8a6010" stroke-width="3"/>
+    <rect x="-14" y="36" width="28" height="10" fill="#888" rx="2"/>
+    <rect x="-12" y="44" width="24" height="8" fill="#444"/>
+  </g>
+  <!-- Sparkle accents -->
+  <g fill="#ffe28a" opacity="0.85">
+    <circle cx="380" cy="120" r="4"/>
+    <circle cx="420" cy="180" r="3"/>
+    <circle cx="100" cy="200" r="3"/>
+    <circle cx="80" cy="280" r="2"/>
+  </g>
+</svg>
